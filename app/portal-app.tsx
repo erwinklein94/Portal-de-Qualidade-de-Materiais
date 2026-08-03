@@ -28,6 +28,8 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
 type TeamRole = "editor" | "analyst" | "coordinator" | "viewer";
+
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 type UserKind = "team" | "supplier";
 
 type Profile = {
@@ -85,7 +87,7 @@ const statusLabels: Record<string, string> = {
 function Logo({ inverse = false }: { inverse?: boolean }) {
   return (
     <div className={`brand-lockup ${inverse ? "brand-lockup--inverse" : ""}`}>
-      <img src="/rumo-logo.png" alt="Rumo" />
+      <img src={`${basePath}/rumo-logo.png`} alt="Rumo" />
       <span>Qualidade de Materiais</span>
     </div>
   );

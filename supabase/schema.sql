@@ -153,8 +153,8 @@ on public.profiles for select to authenticated
 using ((select auth.uid()) = id or (select private.is_team_member()));
 create policy "account managers update profiles"
 on public.profiles for update to authenticated
-using ((select private.has_team_role(array['editor','coordinator'])))
-with check ((select private.has_team_role(array['editor','coordinator'])));
+using ((select private.has_team_role(array['editor','analyst','coordinator'])))
+with check ((select private.has_team_role(array['editor','analyst','coordinator'])));
 
 create policy "users read permitted suppliers"
 on public.suppliers for select to authenticated

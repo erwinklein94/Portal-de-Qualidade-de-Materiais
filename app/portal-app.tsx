@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   PackageCheck,
+  Pencil,
   Plus,
   Search,
   ShieldCheck,
@@ -40,6 +41,7 @@ type Profile = {
   team_role: TeamRole | null;
   supplier_id: string | null;
   area_id: string | null;
+  is_active: boolean;
   must_change_password: boolean;
 };
 
@@ -228,6 +230,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [areas, setAreas] = useState<MaterialArea[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [records, setRecords] = useState<QualityRecord[]>([]);
+  const [accounts, setAccounts] = useState<Profile[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [supplierFilter, setSupplierFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
@@ -235,19 +238,23 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [toast, setToast] = useState("");
 
   const isTeam = profile.user_kind === "team";
-  const canManageAccounts =
+  const canCreateAccounts =
     isTeam && (profile.team_role === "editor" || profile.team_role === "coordinator");
+  const canEditAccounts =
+    isTeam && ["editor", "analyst", "coordinator"].includes(profile.team_role ?? "");
 
   const loadData = useCallback(async () => {
     setDataLoading(true);
-    const [areasResult, suppliersResult, recordsResult] = await Promise.all([
+    const [areasResult, suppliersResult, recordsResult, accountsResult] = await Promise.all([
       supabase.from("material_areas").select("*").order("sort_order"),
       supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name"),
       supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at").order("updated_at", { ascending: false }).limit(100),
+      supabase.from("profiles").select("id, full_name, email, user_kind, team_role, supplier_id, area_id, is_active, must_change_password").order("full_name"),
     ]);
     setAreas((areasResult.data as MaterialArea[]) ?? []);
     setSuppliers((suppliersResult.data as Supplier[]) ?? []);
     setRecords((recordsResult.data as QualityRecord[]) ?? []);
+    setAccounts((accountsResult.data as Profile[]) ?? []);
     setDataLoading(false);
   }, []);
 
@@ -357,7 +364,15 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
             />
           )}
           {activeView === "accounts" && isTeam && (
-            <AccountsPage areas={areas} suppliers={suppliers} canManage={canManageAccounts} onCreated={() => { void loadData(); notify("Conta criada com sucesso."); }} />
+            <AccountsPage
+              areas={areas}
+              suppliers={suppliers}
+              accounts={accounts}
+              currentUserId={profile.id}
+              canCreate={canCreateAccounts}
+              canEdit={canEditAccounts}
+              onChanged={() => { void loadData(); notify("Contas atualizadas com sucesso."); }}
+            />
           )}
         </main>
       </div>
@@ -460,7 +475,15 @@ function EmptyState({ compact = false }: { compact?: boolean }) {
   return <div className={`empty-state ${compact ? "empty-state--compact" : ""}`}><div><Sparkles /></div><h3>Pronto para receber informações</h3><p>Os registros enviados pelos fornecedores aparecerão aqui automaticamente.</p></div>;
 }
 
-function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: MaterialArea[]; suppliers: Supplier[]; canManage: boolean; onCreated: () => void }) {
+function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, canEdit, onChanged }: {
+  areas: MaterialArea[];
+  suppliers: Supplier[];
+  accounts: Profile[];
+  currentUserId: string;
+  canCreate: boolean;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
   const [kind, setKind] = useState<UserKind>("supplier");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -472,10 +495,21 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState<Profile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState<TeamRole>("viewer");
+  const [editAreaId, setEditAreaId] = useState("");
+  const [editSupplierId, setEditSupplierId] = useState("");
+  const [editActive, setEditActive] = useState(true);
+  const [editPassword, setEditPassword] = useState("");
+  const [editPasswordConfirmation, setEditPasswordConfirmation] = useState("");
+  const [editMessage, setEditMessage] = useState("");
+  const [saving, setSaving] = useState(false);
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
-    if (!canManage) return;
+    if (!canCreate) return;
     if (newPassword.length < 8) {
       setMessage("A senha inicial deve ter pelo menos 8 caracteres.");
       return;
@@ -506,8 +540,100 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
       }
       setMessage(reason);
     }
-    else { setMessage("Conta criada com sucesso. Informe a senha inicial ao novo usuário por um canal seguro."); setName(""); setEmail(""); setNewCompany(""); setNewPassword(""); setConfirmPassword(""); onCreated(); }
+    else { setMessage("Conta criada com sucesso. Informe a senha inicial ao novo usuário por um canal seguro."); setName(""); setEmail(""); setNewCompany(""); setNewPassword(""); setConfirmPassword(""); onChanged(); }
     setSubmitting(false);
+  }
+
+  function startEditing(account: Profile) {
+    setEditing(account);
+    setEditName(account.full_name);
+    setEditEmail(account.email);
+    setEditRole(account.team_role ?? "viewer");
+    setEditAreaId(account.area_id ?? "");
+    setEditSupplierId(account.supplier_id ?? "");
+    setEditActive(account.is_active);
+    setEditPassword("");
+    setEditPasswordConfirmation("");
+    setEditMessage("");
+    window.setTimeout(() => document.getElementById("editar-conta")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+  }
+
+  async function saveAccount(event: FormEvent) {
+    event.preventDefault();
+    if (!editing || !canEdit) return;
+    if (editPassword && editPassword.length < 8) {
+      setEditMessage("A nova senha deve ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (editPassword !== editPasswordConfirmation) {
+      setEditMessage("A nova senha e a confirmação não são iguais.");
+      return;
+    }
+    if (editing.user_kind === "supplier" && (!editAreaId || !editSupplierId)) {
+      setEditMessage("Selecione a área e a empresa do fornecedor.");
+      return;
+    }
+    if (editing.id === currentUserId && !editActive) {
+      setEditMessage("Você não pode desativar a própria conta.");
+      return;
+    }
+
+    setSaving(true);
+    setEditMessage("");
+    const { error } = await supabase.functions.invoke("admin-update-user", {
+      body: {
+        id: editing.id,
+        full_name: editName.trim(),
+        email: editEmail.trim(),
+        user_kind: editing.user_kind,
+        team_role: editing.user_kind === "team" ? editRole : null,
+        area_id: editing.user_kind === "supplier" ? editAreaId : null,
+        supplier_id: editing.user_kind === "supplier" ? editSupplierId : null,
+        is_active: editActive,
+        password: editPassword || null,
+      },
+    });
+    if (error) {
+      let reason = "Não foi possível salvar as alterações.";
+      if ("context" in error && error.context instanceof Response) {
+        try {
+          const body = await error.context.clone().json() as { error?: string };
+          if (body.error) reason = body.error;
+        } catch { /* mantém a mensagem padrão */ }
+      }
+      setEditMessage(reason);
+    } else {
+      setEditing(null);
+      onChanged();
+    }
+    setSaving(false);
+  }
+
+  function accountTable(title: string, subtitle: string, list: Profile[], supplierSection = false) {
+    return (
+      <section className="account-group" key={title}>
+        <div className="account-group__heading">
+          <div><h3>{title}</h3><p>{subtitle}</p></div>
+          <span>{list.length} {list.length === 1 ? "conta" : "contas"}</span>
+        </div>
+        <div className="table-wrap account-table-wrap">
+          <table className="account-table">
+            <thead><tr><th>Usuário</th><th>E-mail</th>{supplierSection ? <th>Empresa</th> : <th>Perfil</th>}<th>Status</th><th>Ação</th></tr></thead>
+            <tbody>
+              {list.length ? list.map((account) => (
+                <tr key={account.id}>
+                  <td><strong>{account.full_name}</strong>{account.id === currentUserId && <small>Você</small>}</td>
+                  <td>{account.email}</td>
+                  <td>{supplierSection ? suppliers.find((item) => item.id === account.supplier_id)?.trade_name ?? "Empresa não encontrada" : roleLabels[account.team_role ?? "viewer"]}</td>
+                  <td><span className={`account-status ${account.is_active ? "active" : "inactive"}`}>{account.is_active ? "Ativa" : "Inativa"}</span></td>
+                  <td><button type="button" className="table-action" disabled={!canEdit} onClick={() => startEditing(account)}><Pencil size={14} />Alterar</button></td>
+                </tr>
+              )) : <tr><td className="account-table__empty" colSpan={5}>Nenhuma conta registrada nesta categoria.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -531,9 +657,9 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
               {!supplierId && <label className="full-width">Nome da empresa<input required value={newCompany} onChange={(event) => setNewCompany(event.target.value)} placeholder="Razão social ou nome fantasia" /></label>}
             </>}
           </div>
-          {!canManage && <div className="form-warning">Seu perfil é somente consulta para gestão de contas.</div>}
+          {!canCreate && <div className="form-warning">A criação de contas é permitida para Editor e Coordenador. Você ainda pode consultar e alterar as contas conforme seu perfil.</div>}
           {message && <div className="form-feedback">{message}</div>}
-          <button className="primary-button primary-button--compact" type="submit" disabled={!canManage || submitting}><Plus size={18} />{submitting ? "Criando conta..." : "Criar conta"}</button>
+          <button className="primary-button primary-button--compact" type="submit" disabled={!canCreate || submitting}><Plus size={18} />{submitting ? "Criando conta..." : "Criar conta"}</button>
         </form>
         <aside className="access-guide">
           <h3>Perfis da equipe Rumo</h3>
@@ -543,6 +669,29 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
           <div><span className="role-dot role-dot--viewer" /><p><strong>Consulta</strong>Visualiza dashboards e registros sem editar.</p></div>
           <div className="guide-note"><ShieldCheck /><p><strong>Princípio do menor acesso</strong>Fornecedores enxergam somente a própria empresa dentro da área vinculada.</p></div>
         </aside>
+      </section>
+      <section className="accounts-registry">
+        <div className="accounts-registry__heading"><div><p className="eyebrow">CONTAS REGISTRADAS</p><h2>Usuários por tipo de acesso</h2><p>Equipe Rumo e fornecedores organizados por área de atuação.</p></div><span>{accounts.length} contas no total</span></div>
+        {editing && (
+          <form id="editar-conta" className="account-editor" onSubmit={saveAccount}>
+            <div className="account-editor__heading"><div><p className="eyebrow">ALTERAR CONTA</p><h3>{editing.full_name}</h3></div><button type="button" className="editor-close" onClick={() => setEditing(null)} aria-label="Fechar edição"><X size={18} /></button></div>
+            <div className="form-grid">
+              <label>Nome completo<input required value={editName} onChange={(event) => setEditName(event.target.value)} /></label>
+              <label>E-mail<input required type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
+              {editing.user_kind === "team" ? <label className="full-width">Perfil de acesso<select value={editRole} onChange={(event) => setEditRole(event.target.value as TeamRole)}><option value="editor">Editor</option><option value="analyst">Analista</option><option value="coordinator">Coordenador</option><option value="viewer">Consulta</option></select></label> : <>
+                <label>Área de atuação<select required value={editAreaId} onChange={(event) => { setEditAreaId(event.target.value); setEditSupplierId(""); }}><option value="">Selecione</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+                <label>Empresa<select required value={editSupplierId} onChange={(event) => setEditSupplierId(event.target.value)}><option value="">Selecione</option>{suppliers.filter((supplier) => supplier.area_id === editAreaId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.trade_name}</option>)}</select></label>
+              </>}
+              <label>Nova senha (opcional)<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={editPassword} onChange={(event) => setEditPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label>
+              <label>Confirmar nova senha<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={editPasswordConfirmation} onChange={(event) => setEditPasswordConfirmation(event.target.value)} placeholder="Repita somente se alterar" /></label>
+              <label className="account-active-toggle full-width"><input type="checkbox" checked={editActive} onChange={(event) => setEditActive(event.target.checked)} /><span>Conta ativa e autorizada a entrar no portal</span></label>
+            </div>
+            {editMessage && <div className="form-error">{editMessage}</div>}
+            <div className="account-editor__actions"><button type="button" className="secondary-button" onClick={() => setEditing(null)}>Cancelar</button><button className="primary-button primary-button--compact" disabled={saving} type="submit">{saving ? "Salvando..." : "Salvar alterações"}</button></div>
+          </form>
+        )}
+        {accountTable("Equipe Rumo", "Contas internas separadas por perfil de acesso", accounts.filter((account) => account.user_kind === "team"))}
+        {areas.map((area) => accountTable(area.name, `Fornecedores vinculados à área ${area.name}`, accounts.filter((account) => account.user_kind === "supplier" && account.area_id === area.id), true))}
       </section>
     </>
   );
@@ -556,7 +705,7 @@ export function PortalApp() {
 
   const fetchProfile = useCallback(async (currentSession: Session) => {
     const { data, error } = await supabase.from("profiles").select("*").eq("id", currentSession.user.id).single();
-    if (error || !data) {
+    if (error || !data || !data.is_active) {
       setProfileError("Seu usuário ainda não possui um perfil de acesso ativo.");
       setProfile(null);
     } else {

@@ -85,6 +85,20 @@ type WoodSleeperPayload = {
   released_stock_volume: number;
 };
 
+type QualityChartDatum = {
+  label: string;
+  value: number;
+};
+
+type QualityChartConfig = {
+  id: string;
+  title: string;
+  subtitle: string;
+  unit: "pieces" | "percent";
+  color: string;
+  data: QualityChartDatum[];
+};
+
 const roleLabels: Record<TeamRole, string> = {
   editor: "Editor",
   analyst: "Analista",
@@ -512,11 +526,13 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>
       </section>
       {mode === "dashboard" ? (
-        <section className="dashboard-grid">
-          <article className="chart-card"><div className="card-heading"><div><span>Conformidade</span><strong>{records.length ? Math.round((approved / records.length) * 100) : 0}%</strong></div><span className="status-pill">Período filtrado</span></div><div className="donut" style={{ "--value": `${records.length ? Math.round((approved / records.length) * 100) : 0}%`, "--accent": area.accent_color } as React.CSSProperties}><div><strong>{approved}</strong><span>aprovados</span></div></div><div className="chart-legend"><span><i className="approved" /> Aprovados</span><span><i className="pending" /> Em análise</span><span><i className="rejected" /> Reprovados</span></div></article>
-          <article className="chart-card chart-card--wide"><div className="card-heading"><div><span>Registros por semana</span><p>Evolução das informações recebidas</p></div></div>{records.length ? <div className="bar-chart">{[35, 55, 42, 75, 58, 84, 70, 92].map((height, index) => <div key={index}><span style={{ height: `${height}%`, background: area.accent_color }} /><small>S{index + 1}</small></div>)}</div> : <EmptyState compact />}</article>
-          <article className="chart-card chart-card--full"><div className="card-heading"><div><span>Fornecedores da área</span><p>Visão consolidada por empresa</p></div></div>{area.code === "wood_sleeper" ? <WoodSleeperRecordsTable records={records} suppliers={suppliers} compact /> : <RecordsTable records={records} suppliers={suppliers} compact />}</article>
-        </section>
+        area.code === "wood_sleeper" ? <WoodSleeperDashboard records={records} suppliers={suppliers} /> : (
+          <section className="dashboard-grid">
+            <article className="chart-card"><div className="card-heading"><div><span>Conformidade</span><strong>{records.length ? Math.round((approved / records.length) * 100) : 0}%</strong></div><span className="status-pill">Período filtrado</span></div><div className="donut" style={{ "--value": `${records.length ? Math.round((approved / records.length) * 100) : 0}%`, "--accent": area.accent_color } as React.CSSProperties}><div><strong>{approved}</strong><span>aprovados</span></div></div><div className="chart-legend"><span><i className="approved" /> Aprovados</span><span><i className="pending" /> Em análise</span><span><i className="rejected" /> Reprovados</span></div></article>
+            <article className="chart-card chart-card--wide"><div className="card-heading"><div><span>Registros por semana</span><p>Evolução das informações recebidas</p></div></div>{records.length ? <div className="bar-chart">{[35, 55, 42, 75, 58, 84, 70, 92].map((height, index) => <div key={index}><span style={{ height: `${height}%`, background: area.accent_color }} /><small>S{index + 1}</small></div>)}</div> : <EmptyState compact />}</article>
+            <article className="chart-card chart-card--full"><div className="card-heading"><div><span>Fornecedores da área</span><p>Visão consolidada por empresa</p></div></div><RecordsTable records={records} suppliers={suppliers} compact /></article>
+          </section>
+        )
       ) : (
         <>
           {!isTeam && area.code === "wood_sleeper" && currentSupplierId && <WoodSleeperRecordForm areaId={area.id} supplierId={currentSupplierId} currentUserId={currentUserId} onCreated={onRecordCreated} />}
@@ -527,6 +543,163 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         </>
       )}
     </>
+  );
+}
+
+function payloadNumber(record: QualityRecord, key: keyof Omit<WoodSleeperPayload, "order_number">) {
+  const value = record.payload?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function approvalRate(inspected: number, rejected: number) {
+  if (inspected <= 0) return 0;
+  return Math.max(0, Math.min(100, ((inspected - rejected) / inspected) * 100));
+}
+
+function WoodSleeperDashboard({ records, suppliers }: { records: QualityRecord[]; suppliers: Supplier[] }) {
+  const [activeChart, setActiveChart] = useState<QualityChartConfig | null>(null);
+  const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.trade_name])), [suppliers]);
+
+  const dashboard = useMemo(() => {
+    type Totals = { total: number; inspected: number; rejected: number; released: number };
+    const emptyTotals = (): Totals => ({ total: 0, inspected: 0, rejected: 0, released: 0 });
+    const overall = emptyTotals();
+    const bySupplier = new Map<string, Totals>();
+    const byWeek = new Map<string, Totals>();
+    const byMonth = new Map<string, Totals>();
+
+    for (const record of records) {
+      const values = {
+        total: payloadNumber(record, "total_order_volume"),
+        inspected: payloadNumber(record, "inspected_volume"),
+        rejected: payloadNumber(record, "rejected_volume"),
+        released: payloadNumber(record, "released_stock_volume"),
+      };
+      overall.total += values.total;
+      overall.inspected += values.inspected;
+      overall.rejected += values.rejected;
+      overall.released += values.released;
+
+      const supplierTotals = bySupplier.get(record.supplier_id) ?? emptyTotals();
+      supplierTotals.total += values.total;
+      supplierTotals.inspected += values.inspected;
+      supplierTotals.rejected += values.rejected;
+      supplierTotals.released += values.released;
+      bySupplier.set(record.supplier_id, supplierTotals);
+
+      const year = record.reference_date.slice(0, 4);
+      const weekKey = `${year}-S${String(record.reference_week).padStart(2, "0")}`;
+      const weekTotals = byWeek.get(weekKey) ?? emptyTotals();
+      weekTotals.inspected += values.inspected;
+      weekTotals.rejected += values.rejected;
+      byWeek.set(weekKey, weekTotals);
+
+      const monthKey = record.reference_date.slice(0, 7);
+      const monthTotals = byMonth.get(monthKey) ?? emptyTotals();
+      monthTotals.inspected += values.inspected;
+      monthTotals.rejected += values.rejected;
+      byMonth.set(monthKey, monthTotals);
+    }
+
+    const supplierEntries = [...bySupplier.entries()].map(([supplierId, totals]) => ({
+      label: supplierNames.get(supplierId) ?? "Fornecedor",
+      ...totals,
+    }));
+    const supplierData = (selector: (totals: Totals) => number) => supplierEntries
+      .map((entry) => ({ label: entry.label, value: selector(entry) }))
+      .sort((a, b) => b.value - a.value);
+
+    const weeklyApproval = [...byWeek.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, totals]) => ({
+      label: key.replace("-S", "/S"),
+      value: approvalRate(totals.inspected, totals.rejected),
+    }));
+    const monthlyApproval = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, totals]) => {
+      const [year, month] = key.split("-").map(Number);
+      return {
+        label: new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, 1))).replace(" de ", "/"),
+        value: approvalRate(totals.inspected, totals.rejected),
+      };
+    });
+
+    const charts: QualityChartConfig[] = [
+      { id: "inspected-supplier", title: "Peças inspecionadas por fornecedor", subtitle: "Volume total inspecionado pela qualidade do fornecedor", unit: "pieces", color: "#32A6E6", data: supplierData((item) => item.inspected) },
+      { id: "approval-week", title: "Taxa de aprovação por semana", subtitle: "Percentual aprovado sobre o volume inspecionado", unit: "percent", color: "#1E9F7F", data: weeklyApproval },
+      { id: "approval-month", title: "Taxa de aprovação por mês", subtitle: "Evolução mensal do percentual de aprovação", unit: "percent", color: "#7FE06C", data: monthlyApproval },
+      { id: "approval-supplier", title: "Taxa de aprovação por fornecedor", subtitle: "Comparativo de desempenho entre empresas", unit: "percent", color: "#003865", data: supplierData((item) => approvalRate(item.inspected, item.rejected)) },
+      { id: "rejected-supplier", title: "Peças reprovadas por fornecedor", subtitle: "Volume acumulado de reprovas no período", unit: "pieces", color: "#F78344", data: supplierData((item) => item.rejected) },
+      { id: "released-supplier", title: "Estoque liberado por fornecedor", subtitle: "Peças disponíveis e liberadas para transporte", unit: "pieces", color: "#9F4BB9", data: supplierData((item) => item.released) },
+      { id: "inspection-coverage", title: "Cobertura de inspeção por fornecedor", subtitle: "Percentual do pedido que já passou por inspeção", unit: "percent", color: "#FBD300", data: supplierData((item) => item.total > 0 ? Math.min(100, (item.inspected / item.total) * 100) : 0) },
+    ];
+
+    return { overall, charts };
+  }, [records, supplierNames]);
+
+  useEffect(() => {
+    if (!activeChart) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveChart(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [activeChart]);
+
+  const formatPieces = (value: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+  const approvedPieces = Math.max(0, dashboard.overall.inspected - dashboard.overall.rejected);
+
+  return (
+    <>
+      <section className="wood-kpi-grid">
+        <Metric label="Peças inspecionadas" value={formatPieces(dashboard.overall.inspected)} detail="Volume acumulado no período" color="cyan" icon={<Search />} />
+        <Metric label="Peças aprovadas" value={formatPieces(approvedPieces)} detail="Inspecionadas menos reprovas" color="green" icon={<ShieldCheck />} />
+        <Metric label="Taxa de aprovação" value={`${approvalRate(dashboard.overall.inspected, dashboard.overall.rejected).toFixed(1)}%`} detail="Desempenho geral filtrado" color="blue" icon={<Gauge />} />
+        <Metric label="Estoque liberado" value={formatPieces(dashboard.overall.released)} detail="Disponível para transporte" color="orange" icon={<PackageCheck />} />
+      </section>
+      <section className="quality-charts-grid">
+        {dashboard.charts.map((chart) => <QualityChartCard chart={chart} key={chart.id} onOpen={() => setActiveChart(chart)} />)}
+        <article className="chart-card quality-records-summary"><div className="card-heading"><div><span>Registros que compõem os indicadores</span><p>Dados filtrados enviados pelos fornecedores</p></div></div><WoodSleeperRecordsTable records={records} suppliers={suppliers} compact /></article>
+      </section>
+      {activeChart && <QualityChartModal chart={activeChart} onClose={() => setActiveChart(null)} />}
+    </>
+  );
+}
+
+function QualityChartCard({ chart, onOpen }: { chart: QualityChartConfig; onOpen: () => void }) {
+  return (
+    <article className="chart-card quality-chart-card" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }} aria-label={`Ampliar gráfico: ${chart.title}`}>
+      <div className="card-heading"><div><span>{chart.title}</span><p>{chart.subtitle}</p></div><Maximize2 className="chart-expand-icon" size={17} /></div>
+      <QualityBarChart chart={chart} />
+      <span className="chart-open-hint">Clique para ampliar</span>
+    </article>
+  );
+}
+
+function QualityBarChart({ chart, expanded = false }: { chart: QualityChartConfig; expanded?: boolean }) {
+  if (!chart.data.length) return <EmptyState compact />;
+  const maximum = chart.unit === "percent" ? 100 : Math.max(...chart.data.map((item) => item.value), 1);
+  const formatValue = (value: number) => chart.unit === "percent"
+    ? `${value.toFixed(1)}%`
+    : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+  return (
+    <div className={`quality-bar-chart ${expanded ? "quality-bar-chart--expanded" : ""}`}>
+      <div className="quality-chart-scale"><span>{formatValue(maximum)}</span><span>{formatValue(maximum / 2)}</span><span>0</span></div>
+      <div className="quality-chart-plot">
+        {chart.data.map((item) => {
+          const height = maximum ? Math.max(item.value > 0 ? 2 : 0, Math.min(100, (item.value / maximum) * 100)) : 0;
+          return <div className="quality-bar-item" key={item.label} title={`${item.label}: ${formatValue(item.value)}`}><strong>{formatValue(item.value)}</strong><div className="quality-bar-track"><span style={{ height: `${height}%`, background: chart.color }} /></div><small>{item.label}</small></div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function QualityChartModal({ chart, onClose }: { chart: QualityChartConfig; onClose: () => void }) {
+  return (
+    <div className="chart-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="chart-modal" role="dialog" aria-modal="true" aria-labelledby={`chart-modal-${chart.id}`}>
+        <div className="chart-modal__heading"><div><p className="eyebrow">VISÃO AMPLIADA</p><h2 id={`chart-modal-${chart.id}`}>{chart.title}</h2><p>{chart.subtitle}</p></div><button onClick={onClose} aria-label="Fechar gráfico ampliado"><X size={20} /></button></div>
+        <QualityBarChart chart={chart} expanded />
+      </section>
+    </div>
   );
 }
 

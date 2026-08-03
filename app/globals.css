@@ -209,6 +209,34 @@ button { cursor: pointer; }
 .bar-chart > div { height: 100%; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; }
 .bar-chart span { width: min(28px, 75%); min-height: 4px; border-radius: 4px 4px 0 0; opacity: .85; }
 .bar-chart small { color: var(--muted); font-size: 8px; }
+.wood-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+.quality-charts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.quality-chart-card { position: relative; min-height: 350px; overflow: hidden; cursor: zoom-in; transition: transform .2s, border-color .2s, box-shadow .2s; }
+.quality-chart-card:hover, .quality-chart-card:focus-visible { transform: translateY(-2px); border-color: var(--rumo-cyan); box-shadow: var(--shadow); outline: none; }
+.chart-expand-icon { flex: 0 0 auto; color: var(--rumo-cyan); }
+.chart-open-hint { position: absolute; right: 18px; bottom: 13px; color: var(--muted); font-size: 7px; font-weight: 700; }
+.quality-records-summary { grid-column: 1 / -1; padding: 0; overflow: hidden; }
+.quality-records-summary > .card-heading { padding: 20px 22px; border-bottom: 1px solid var(--line); }
+.quality-bar-chart { position: relative; height: 260px; display: flex; gap: 10px; margin-top: 17px; padding: 15px 0 35px; overflow-x: auto; overflow-y: hidden; }
+.quality-chart-scale { width: 43px; flex: 0 0 43px; display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 30px; color: var(--muted); border-right: 1px solid var(--line); font-size: 7px; text-align: right; }
+.quality-chart-scale span { padding-right: 8px; }
+.quality-chart-plot { min-width: calc(100% - 53px); display: flex; align-items: stretch; gap: 10px; }
+.quality-bar-item { min-width: 48px; height: 100%; flex: 1; display: grid; grid-template-rows: 20px minmax(120px, 1fr) 30px; align-items: end; gap: 5px; text-align: center; }
+.quality-bar-item > strong { overflow: hidden; color: var(--text); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.quality-bar-track { height: 100%; display: flex; align-items: flex-end; justify-content: center; background: repeating-linear-gradient(to top, transparent 0, transparent calc(50% - 1px), color-mix(in srgb, var(--line) 70%, transparent) 50%, transparent calc(50% + 1px)); border-bottom: 1px solid var(--line); }
+.quality-bar-track span { width: min(34px, 72%); min-height: 2px; border-radius: 4px 4px 0 0; opacity: .92; transition: height .35s ease; }
+.quality-bar-item small { align-self: start; overflow: hidden; color: var(--muted); font-size: 7px; line-height: 1.25; text-overflow: ellipsis; }
+.chart-modal-backdrop { position: fixed; z-index: 220; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(0,25,44,.78); backdrop-filter: blur(8px); }
+.chart-modal { width: min(1180px, 96vw); max-height: 92vh; overflow: auto; padding: 28px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-top: 5px solid var(--rumo-green); border-radius: 10px; box-shadow: 0 30px 80px rgba(0,15,27,.4); }
+.chart-modal__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.chart-modal__heading h2 { margin: 3px 0 7px; color: var(--text); font-size: clamp(22px, 3vw, 34px); }
+.chart-modal__heading > div > p:last-child { margin: 0; color: var(--muted); font-size: 11px; }
+.chart-modal__heading button { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; color: var(--text); border: 1px solid var(--line); border-radius: 50%; background: transparent; }
+.chart-modal__heading button:hover { color: white; border-color: var(--rumo-blue); background: var(--rumo-blue); }
+.quality-bar-chart--expanded { height: min(560px, 62vh); margin-top: 25px; padding-top: 25px; }
+.quality-bar-chart--expanded .quality-bar-item { min-width: 72px; grid-template-rows: 28px minmax(260px, 1fr) 42px; }
+.quality-bar-chart--expanded .quality-bar-item > strong { font-size: 11px; }
+.quality-bar-chart--expanded .quality-bar-item small { font-size: 9px; }
 .records-card { padding: 0; overflow: hidden; }
 .material-record-form { margin-bottom: 22px; padding: 24px; background: white; border: 1px solid var(--line); border-top: 4px solid var(--rumo-green); border-radius: 8px; box-shadow: 0 5px 18px rgba(0,56,101,.04); }
 .material-record-form__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
@@ -298,6 +326,8 @@ td strong { color: var(--rumo-blue); }
 .presentation-mode .content { max-width: none; min-height: 100vh; padding: 30px clamp(24px, 3vw, 56px) 50px; }
 .presentation-mode .area-hero { padding-right: 360px; }
 .presentation-mode .dashboard-grid { grid-template-columns: minmax(300px, .7fr) minmax(520px, 1.3fr); }
+.presentation-mode .quality-charts-grid { grid-template-columns: repeat(3, minmax(300px, 1fr)); }
+.presentation-mode .quality-records-summary { grid-column: 1 / -1; }
 
 .theme-dark {
   --surface: #0b2b43;
@@ -373,6 +403,7 @@ td strong { color: var(--rumo-blue); }
 
 @media (max-width: 1250px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .wood-kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .area-card-grid { grid-template-columns: repeat(3, 1fr); }
   .topbar-control span { display: none; }
 }
@@ -401,6 +432,7 @@ td strong { color: var(--rumo-blue); }
   .filter-bar { flex-wrap: wrap; align-items: center; }
   .filter-bar label { flex: 1 1 180px; }
   .dashboard-grid { grid-template-columns: 1fr; }
+  .quality-charts-grid, .presentation-mode .quality-charts-grid { grid-template-columns: 1fr; }
   .chart-card--full { grid-column: auto; }
 }
 
@@ -409,6 +441,10 @@ td strong { color: var(--rumo-blue); }
   .login-card h2 { font-size: 30px; }
   .access-switch { grid-template-columns: 1fr; }
   .metric-grid, .area-card-grid, .type-choice, .form-grid { grid-template-columns: 1fr; }
+  .wood-kpi-grid { grid-template-columns: 1fr; }
+  .chart-modal-backdrop { padding: 10px; }
+  .chart-modal { width: 100%; padding: 20px 16px; }
+  .quality-bar-chart--expanded { height: 58vh; }
   .material-record-form__actions { align-items: stretch; flex-direction: column; }
   .material-record-form__actions .primary-button { width: 100%; }
   .form-grid .full-width { grid-column: auto; }

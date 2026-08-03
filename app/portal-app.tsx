@@ -441,6 +441,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               canCreate={canCreateAccounts}
               canEdit={canEditAccounts}
               onChanged={() => { void loadData(); notify("Contas atualizadas com sucesso."); }}
+              onExamplesActivated={() => { void loadData(); notify("Exemplos de Dormente de Madeira ativados."); }}
             />
           )}
         </main>
@@ -804,7 +805,7 @@ function EmptyState({ compact = false }: { compact?: boolean }) {
   return <div className={`empty-state ${compact ? "empty-state--compact" : ""}`}><div><Sparkles /></div><h3>Pronto para receber informações</h3><p>Os registros enviados pelos fornecedores aparecerão aqui automaticamente.</p></div>;
 }
 
-function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, canEdit, onChanged }: {
+function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, canEdit, onChanged, onExamplesActivated }: {
   areas: MaterialArea[];
   suppliers: Supplier[];
   accounts: Profile[];
@@ -812,6 +813,7 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
   canCreate: boolean;
   canEdit: boolean;
   onChanged: () => void;
+  onExamplesActivated: () => void;
 }) {
   const [kind, setKind] = useState<UserKind>("supplier");
   const [name, setName] = useState("");
@@ -837,6 +839,35 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
   const [editPasswordConfirmation, setEditPasswordConfirmation] = useState("");
   const [editMessage, setEditMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [activatingExamples, setActivatingExamples] = useState(false);
+  const [exampleMessage, setExampleMessage] = useState("");
+  const [exampleError, setExampleError] = useState(false);
+
+  async function activateExamples() {
+    if (!canCreate || activatingExamples) return;
+    setActivatingExamples(true);
+    setExampleMessage("");
+    setExampleError(false);
+    const { data, error } = await supabase.functions.invoke("activate-wood-sleeper-examples", { body: {} });
+    if (error) {
+      let reason = "Não foi possível ativar os exemplos. Tente novamente.";
+      if ("context" in error && error.context instanceof Response) {
+        try {
+          const body = await error.context.clone().json() as { error?: string };
+          if (body.error) reason = body.error;
+        } catch { /* mantém a mensagem padrão */ }
+      }
+      setExampleError(true);
+      setExampleMessage(reason);
+    } else {
+      const result = data as { created?: number; total?: number; suppliers?: number; already_active?: boolean };
+      setExampleMessage(result.already_active
+        ? `Os ${result.total ?? 0} exemplos já estavam ativos para ${result.suppliers ?? 0} fornecedores.`
+        : `${result.created ?? 0} exemplos ativados para ${result.suppliers ?? 0} fornecedores de Dormente de Madeira.`);
+      onExamplesActivated();
+    }
+    setActivatingExamples(false);
+  }
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
@@ -972,7 +1003,8 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
 
   return (
     <>
-      <section className="page-heading"><div><p className="eyebrow">ADMINISTRAÇÃO</p><h1>Contas e acessos</h1><p>Controle quem acessa o portal e o alcance de cada perfil.</p></div></section>
+      <section className="page-heading"><div><p className="eyebrow">ADMINISTRAÇÃO</p><h1>Contas e acessos</h1><p>Controle quem acessa o portal e o alcance de cada perfil.</p></div><button type="button" className="primary-button primary-button--compact examples-button" disabled={!canCreate || activatingExamples} onClick={() => void activateExamples()}><Sparkles size={18} />{activatingExamples ? "Ativando exemplos..." : "Ativar exemplos"}</button></section>
+      {exampleMessage && <div className={exampleError ? "form-error examples-feedback" : "form-feedback examples-feedback"}>{exampleMessage}</div>}
       <section className="account-layout">
         <form className="account-form-card" onSubmit={createAccount}>
           <div className="card-heading"><div><span>Nova conta</span><p>Defina o tipo de acesso e os dados do usuário</p></div><div className="account-icon"><Users /></div></div>

@@ -266,6 +266,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [toast, setToast] = useState("");
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [presentationMode, setPresentationMode] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const isTeam = profile.user_kind === "team";
   const canCreateAccounts =
@@ -346,6 +347,10 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
 
   const approved = records.filter((record) => record.status === "approved").length;
   const pending = records.filter((record) => ["submitted", "under_review"].includes(record.status)).length;
+  const recentUpdates = useMemo(
+    () => [...records].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).slice(0, 10),
+    [records],
+  );
 
   function notify(message: string) {
     setToast(message);
@@ -369,6 +374,23 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   }
 
   const hasPresentation = isTeam && activeView === "area" && areaMode === "dashboard";
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotificationsOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [notificationsOpen]);
+
+  function openNotification(record: QualityRecord) {
+    setSupplierFilter(isTeam ? record.supplier_id : "");
+    setDateFilter(record.reference_date);
+    setWeekFilter("");
+    selectArea(record.area_id, "records");
+    setNotificationsOpen(false);
+  }
 
   return (
     <div className={`portal theme-${theme} ${menuOpen ? "menu-open" : "menu-closed"} ${presentationMode ? "presentation-mode" : ""}`}>
@@ -419,10 +441,39 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
           <div className="topbar-actions">
             {hasPresentation && <button className="topbar-control presentation-button" onClick={() => void togglePresentation()}><Maximize2 size={16} /><span>Modo apresentação</span></button>}
             <button className="topbar-control theme-button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "Ativar tema escuro" : "Ativar tema claro"}>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}<span>{theme === "light" ? "Tema escuro" : "Tema claro"}</span></button>
-            <button className="icon-button notification" aria-label="Notificações"><Bell size={20} /><span /></button>
+            <button className="icon-button notification" aria-label="Abrir atualizações recentes" aria-haspopup="dialog" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(true)}><Bell size={20} />{recentUpdates.length > 0 && <span className="notification-badge">{recentUpdates.length}</span>}</button>
             <div className="topbar-profile"><span>{profile.full_name.slice(0, 2).toUpperCase()}</span><div><strong>{profile.full_name}</strong><small>{profile.email}</small></div></div>
           </div>
         </header>
+
+        {notificationsOpen && (
+          <div className="notifications-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNotificationsOpen(false); }}>
+            <section className="notifications-modal" role="dialog" aria-modal="true" aria-labelledby="notifications-title">
+              <div className="notifications-modal__heading">
+                <div className="notifications-modal__icon"><Bell size={20} /></div>
+                <div><p className="eyebrow">ATUALIZAÇÕES RECENTES</p><h2 id="notifications-title">Últimas ocorrências</h2><p>Os 10 registros mais recentes enviados ou atualizados pelos fornecedores.</p></div>
+                <button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Fechar atualizações"><X size={18} /></button>
+              </div>
+              <div className="notifications-list">
+                {recentUpdates.length ? recentUpdates.map((record) => {
+                  const supplier = suppliers.find((item) => item.id === record.supplier_id);
+                  const area = areas.find((item) => item.id === record.area_id);
+                  return (
+                    <button type="button" className="notification-item" key={record.id} onClick={() => openNotification(record)}>
+                      <span className="notification-item__marker" style={{ "--notification-accent": area?.accent_color ?? "var(--rumo-cyan)" } as React.CSSProperties}><ClipboardCheck size={17} /></span>
+                      <span className="notification-item__content">
+                        <strong>{supplier?.trade_name ?? "Fornecedor"}</strong>
+                        <span>{area?.name ?? "Área de materiais"} · Pedido {String(record.payload?.order_number ?? "não informado")}</span>
+                        <small>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(record.updated_at))}</small>
+                      </span>
+                      <span className="notification-item__action"><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span><ChevronRight size={17} /></span>
+                    </button>
+                  );
+                }) : <div className="notifications-empty"><Bell size={25} /><strong>Nenhuma atualização disponível</strong><span>Os registros enviados pelos fornecedores aparecerão aqui.</span></div>}
+              </div>
+            </section>
+          </div>
+        )}
 
         <main className="content">
           {profile.must_change_password && (

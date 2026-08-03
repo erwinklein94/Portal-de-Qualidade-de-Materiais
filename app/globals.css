@@ -155,10 +155,6 @@ button { cursor: pointer; }
 .notifications-empty span { font-size: 9px; }
 
 .content { max-width: 1500px; margin: 0 auto; padding: 34px clamp(20px, 3vw, 48px) 60px; }
-.security-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 11px 14px; color: #6d5700; background: #fff9dd; border: 1px solid #f3e39b; border-radius: 6px; font-size: 11px; }
-.security-banner svg { color: #b59600; }
-.security-banner span { flex: 1; }
-.security-banner button { color: #6d5700; border: 0; background: transparent; font-size: 10px; font-weight: 800; }
 .page-heading, .area-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .page-heading h1, .area-hero h1 { margin: 0 0 8px; color: var(--rumo-blue); font-size: clamp(28px, 3.4vw, 44px); line-height: 1.05; letter-spacing: -.045em; }
 .page-heading > div > p:last-child, .area-hero > div > p:last-child { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
@@ -426,8 +422,6 @@ td strong { color: var(--rumo-blue); }
 .theme-dark .notification-badge { border-color: var(--surface); }
 .theme-dark .notifications-modal__icon { color: var(--rumo-cyan); }
 .theme-dark .notification-item__action { color: var(--rumo-cyan); }
-.theme-dark .security-banner { color: #fbd300; border-color: rgba(251,211,0,.35); background: rgba(251,211,0,.1); }
-.theme-dark .security-banner button { color: #fbd300; }
 .theme-dark .examples-button { color: #003865; background: var(--rumo-lime); }
 .theme-dark .examples-button:hover { color: white; background: var(--rumo-green); }
 .theme-dark .examples-feedback.form-feedback { color: var(--rumo-lime); border-color: rgba(127,224,108,.3); background: rgba(30,159,127,.16); }
@@ -491,7 +485,6 @@ td strong { color: var(--rumo-blue); }
   .area-card { min-height: 220px; }
   .area-hero { align-items: flex-start; flex-direction: column; padding: 22px; }
   .heading-date, .section-help { display: none; }
-  .security-banner { align-items: flex-start; }
   .account-table { min-width: 680px; }
   .topbar-actions { gap: 5px; }
 }

@@ -476,9 +476,6 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
         )}
 
         <main className="content">
-          {profile.must_change_password && (
-            <div className="security-banner"><ShieldCheck size={20} /><span>Este é um acesso inicial. Por segurança, programe a troca da senha compartilhada.</span><button onClick={() => notify("Fluxo de troca de senha preparado para a próxima etapa.")}>Entendi</button></div>
-          )}
           {activeView === "overview" && isTeam && (
             <Overview areas={areas} records={records} suppliers={suppliers} approved={approved} pending={pending} loading={dataLoading} onArea={selectArea} />
           )}

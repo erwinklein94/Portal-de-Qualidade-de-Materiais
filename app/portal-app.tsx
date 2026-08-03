@@ -275,18 +275,36 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
 
   const loadData = useCallback(async () => {
     setDataLoading(true);
+    let areasQuery = supabase.from("material_areas").select("*").order("sort_order");
+    let suppliersQuery = supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name");
+    let recordsQuery = supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload").order("updated_at", { ascending: false }).limit(1000);
+
+    if (!isTeam) {
+      if (profile.area_id) {
+        areasQuery = areasQuery.eq("id", profile.area_id);
+        suppliersQuery = suppliersQuery.eq("area_id", profile.area_id);
+        recordsQuery = recordsQuery.eq("area_id", profile.area_id);
+      }
+      if (profile.supplier_id) {
+        suppliersQuery = suppliersQuery.eq("id", profile.supplier_id);
+        recordsQuery = recordsQuery.eq("supplier_id", profile.supplier_id);
+      }
+    }
+
     const [areasResult, suppliersResult, recordsResult, accountsResult] = await Promise.all([
-      supabase.from("material_areas").select("*").order("sort_order"),
-      supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name"),
-      supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload").order("updated_at", { ascending: false }).limit(1000),
-      supabase.from("profiles").select("id, full_name, email, user_kind, team_role, supplier_id, area_id, is_active, must_change_password").order("full_name"),
+      areasQuery,
+      suppliersQuery,
+      recordsQuery,
+      isTeam
+        ? supabase.from("profiles").select("id, full_name, email, user_kind, team_role, supplier_id, area_id, is_active, must_change_password").order("full_name")
+        : Promise.resolve({ data: [] as Profile[] }),
     ]);
     setAreas((areasResult.data as MaterialArea[]) ?? []);
     setSuppliers((suppliersResult.data as Supplier[]) ?? []);
     setRecords((recordsResult.data as QualityRecord[]) ?? []);
     setAccounts((accountsResult.data as Profile[]) ?? []);
     setDataLoading(false);
-  }, []);
+  }, [isTeam, profile.area_id, profile.supplier_id]);
 
   useEffect(() => {
     void loadData();
@@ -520,7 +538,7 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
       </div>
       <section className="filter-bar">
         <div className="filter-title"><SlidersHorizontal size={18} /><span>Filtros</span></div>
-        <label>Fornecedor<select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)}><option value="">Todos os fornecedores</option>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.trade_name}</option>)}</select></label>
+        {isTeam && <label>Fornecedor<select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)}><option value="">Todos os fornecedores</option>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.trade_name}</option>)}</select></label>}
         <label>Data<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
         <label>Semana<select value={weekFilter} onChange={(event) => setWeekFilter(event.target.value)}><option value="">Todas as semanas</option>{Array.from({ length: 53 }, (_, index) => index + 1).map((week) => <option value={week} key={week}>Semana {week}</option>)}</select></label>
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>

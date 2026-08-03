@@ -182,11 +182,19 @@ alter table public.material_areas enable row level security;
 alter table public.suppliers enable row level security;
 alter table public.profiles enable row level security;
 alter table public.quality_records enable row level security;
+alter table public.material_areas force row level security;
+alter table public.suppliers force row level security;
+alter table public.profiles force row level security;
+alter table public.quality_records force row level security;
 
-create policy "authenticated users read active material areas"
-on public.material_areas for select to authenticated using (is_active = true);
+create policy "team or assigned supplier read active material areas"
+on public.material_areas for select to authenticated
+using (
+  is_active = true
+  and ((select private.is_team_member()) or id = (select private.current_area_id()))
+);
 
-create policy "users read permitted profiles"
+create policy "users read own profile or team reads profiles"
 on public.profiles for select to authenticated
 using ((select auth.uid()) = id or (select private.is_team_member()));
 create policy "account managers update profiles"
@@ -194,7 +202,7 @@ on public.profiles for update to authenticated
 using ((select private.has_team_role(array['editor','analyst','coordinator'])))
 with check ((select private.has_team_role(array['editor','analyst','coordinator'])));
 
-create policy "users read permitted suppliers"
+create policy "team or assigned supplier read suppliers"
 on public.suppliers for select to authenticated
 using (
   (select private.is_team_member())
@@ -211,7 +219,7 @@ create policy "account managers delete suppliers"
 on public.suppliers for delete to authenticated
 using ((select private.has_team_role(array['editor','coordinator'])));
 
-create policy "users read permitted quality records"
+create policy "team or assigned supplier read quality records"
 on public.quality_records for select to authenticated
 using (
   (select private.is_team_member())

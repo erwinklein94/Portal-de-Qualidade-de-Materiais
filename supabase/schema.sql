@@ -69,6 +69,8 @@ create index suppliers_area_id_idx on public.suppliers (area_id);
 create index quality_records_area_date_idx on public.quality_records (area_id, reference_date desc);
 create index quality_records_supplier_date_idx on public.quality_records (supplier_id, reference_date desc);
 create index quality_records_status_idx on public.quality_records (status);
+create index quality_records_created_by_idx on public.quality_records (created_by);
+create index quality_records_reviewed_by_idx on public.quality_records (reviewed_by);
 
 create function private.set_updated_at()
 returns trigger
@@ -146,58 +148,70 @@ alter table public.quality_records enable row level security;
 create policy "authenticated users read active material areas"
 on public.material_areas for select to authenticated using (is_active = true);
 
-create policy "users read own profile"
-on public.profiles for select to authenticated using ((select auth.uid()) = id);
-create policy "team reads profiles"
-on public.profiles for select to authenticated using ((select private.is_team_member()));
+create policy "users read permitted profiles"
+on public.profiles for select to authenticated
+using ((select auth.uid()) = id or (select private.is_team_member()));
 create policy "account managers update profiles"
 on public.profiles for update to authenticated
 using ((select private.has_team_role(array['editor','coordinator'])))
 with check ((select private.has_team_role(array['editor','coordinator'])));
 
-create policy "team reads suppliers"
-on public.suppliers for select to authenticated using ((select private.is_team_member()));
-create policy "suppliers read own company"
+create policy "users read permitted suppliers"
 on public.suppliers for select to authenticated
-using (id = (select private.current_supplier_id()) and area_id = (select private.current_area_id()));
-create policy "account managers manage suppliers"
-on public.suppliers for all to authenticated
+using (
+  (select private.is_team_member())
+  or (id = (select private.current_supplier_id()) and area_id = (select private.current_area_id()))
+);
+create policy "account managers insert suppliers"
+on public.suppliers for insert to authenticated
+with check ((select private.has_team_role(array['editor','coordinator'])));
+create policy "account managers update suppliers"
+on public.suppliers for update to authenticated
 using ((select private.has_team_role(array['editor','coordinator'])))
 with check ((select private.has_team_role(array['editor','coordinator'])));
+create policy "account managers delete suppliers"
+on public.suppliers for delete to authenticated
+using ((select private.has_team_role(array['editor','coordinator'])));
 
-create policy "team reads all quality records"
-on public.quality_records for select to authenticated using ((select private.is_team_member()));
-create policy "suppliers read own quality records"
+create policy "users read permitted quality records"
 on public.quality_records for select to authenticated
-using (supplier_id = (select private.current_supplier_id()) and area_id = (select private.current_area_id()));
-create policy "suppliers insert own quality records"
+using (
+  (select private.is_team_member())
+  or (supplier_id = (select private.current_supplier_id()) and area_id = (select private.current_area_id()))
+);
+create policy "users insert permitted quality records"
 on public.quality_records for insert to authenticated
 with check (
-  created_by = (select auth.uid())
-  and supplier_id = (select private.current_supplier_id())
-  and area_id = (select private.current_area_id())
-  and status in ('draft', 'submitted')
+  (
+    created_by = (select auth.uid())
+    and supplier_id = (select private.current_supplier_id())
+    and area_id = (select private.current_area_id())
+    and status in ('draft', 'submitted')
+  )
+  or (
+    (select private.has_team_role(array['editor','coordinator']))
+    and created_by = (select auth.uid())
+  )
 );
-create policy "suppliers update editable own quality records"
+create policy "users update permitted quality records"
 on public.quality_records for update to authenticated
 using (
-  supplier_id = (select private.current_supplier_id())
-  and area_id = (select private.current_area_id())
-  and status in ('draft', 'rejected')
+  (
+    supplier_id = (select private.current_supplier_id())
+    and area_id = (select private.current_area_id())
+    and status in ('draft', 'rejected')
+  )
+  or (select private.has_team_role(array['editor','analyst','coordinator']))
 )
 with check (
-  created_by = (select auth.uid())
-  and supplier_id = (select private.current_supplier_id())
-  and area_id = (select private.current_area_id())
-  and status in ('draft', 'submitted')
+  (
+    created_by = (select auth.uid())
+    and supplier_id = (select private.current_supplier_id())
+    and area_id = (select private.current_area_id())
+    and status in ('draft', 'submitted')
+  )
+  or (select private.has_team_role(array['editor','analyst','coordinator']))
 );
-create policy "quality team updates records"
-on public.quality_records for update to authenticated
-using ((select private.has_team_role(array['editor','analyst','coordinator'])))
-with check ((select private.has_team_role(array['editor','analyst','coordinator'])));
-create policy "editors and coordinators insert records"
-on public.quality_records for insert to authenticated
-with check ((select private.has_team_role(array['editor','coordinator'])) and created_by = (select auth.uid()));
 create policy "editors and coordinators delete records"
 on public.quality_records for delete to authenticated
 using ((select private.has_team_role(array['editor','coordinator'])));
@@ -206,6 +220,17 @@ grant select on public.material_areas to authenticated;
 grant select, update on public.profiles to authenticated;
 grant select, insert, update, delete on public.suppliers to authenticated;
 grant select, insert, update, delete on public.quality_records to authenticated;
+grant all privileges on table public.material_areas, public.suppliers, public.profiles, public.quality_records to service_role;
+
+-- Alguns projetos possuem esta função auxiliar criada pelo painel. Caso exista,
+-- ela não deve ficar executável pelos papéis usados pela aplicação.
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke execute on function public.rls_auto_enable() from public, anon, authenticated';
+  end if;
+end;
+$$;
 
 insert into public.material_areas (code, name, description, accent_color, sort_order)
 values

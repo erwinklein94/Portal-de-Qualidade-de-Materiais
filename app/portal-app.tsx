@@ -12,7 +12,10 @@ import {
   FileCheck2,
   Gauge,
   LogOut,
+  Maximize2,
   Menu,
+  Minimize2,
+  Moon,
   PackageCheck,
   Pencil,
   Plus,
@@ -20,6 +23,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Sun,
   Users,
   X,
 } from "lucide-react";
@@ -32,6 +36,7 @@ type TeamRole = "editor" | "analyst" | "coordinator" | "viewer";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 type UserKind = "team" | "supplier";
+type ThemeMode = "light" | "dark";
 
 type Profile = {
   id: string;
@@ -245,6 +250,8 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [dateFilter, setDateFilter] = useState("");
   const [weekFilter, setWeekFilter] = useState("");
   const [toast, setToast] = useState("");
+  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [presentationMode, setPresentationMode] = useState(false);
 
   const isTeam = profile.user_kind === "team";
   const canCreateAccounts =
@@ -271,6 +278,23 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("rumo-portal-theme");
+    if (savedTheme === "dark") setTheme("dark");
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("rumo-portal-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      if (!document.fullscreenElement) setPresentationMode(false);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
   function selectArea(areaId: string, mode: "dashboard" | "records") {
     setActiveArea(areaId);
     setAreaMode(mode);
@@ -296,8 +320,26 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     window.setTimeout(() => setToast(""), 3500);
   }
 
+  async function togglePresentation() {
+    if (presentationMode) {
+      setPresentationMode(false);
+      if (document.fullscreenElement) await document.exitFullscreen();
+      return;
+    }
+
+    setMenuOpen(false);
+    setPresentationMode(true);
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      notify("O navegador bloqueou a tela cheia, mas o layout de apresentação foi ativado.");
+    }
+  }
+
+  const hasPresentation = isTeam && activeView === "area" && areaMode === "dashboard";
+
   return (
-    <div className={`portal ${menuOpen ? "menu-open" : "menu-closed"}`}>
+    <div className={`portal theme-${theme} ${menuOpen ? "menu-open" : "menu-closed"} ${presentationMode ? "presentation-mode" : ""}`}>
       <aside className="sidebar" aria-label="Menu principal">
         <div className="sidebar-head">
           <Logo inverse />
@@ -343,6 +385,8 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
           <button className="icon-button menu-toggle" onClick={() => setMenuOpen((value) => !value)} aria-label="Abrir menu"><Menu /></button>
           <div className="breadcrumb"><span>Qualidade de Materiais</span><ChevronRight size={15} /> <strong>{activeView === "overview" ? "Visão geral" : activeView === "accounts" ? "Contas e acessos" : selectedArea?.name ?? "Área"}</strong></div>
           <div className="topbar-actions">
+            {hasPresentation && <button className="topbar-control presentation-button" onClick={() => void togglePresentation()}><Maximize2 size={16} /><span>Modo apresentação</span></button>}
+            <button className="topbar-control theme-button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "Ativar tema escuro" : "Ativar tema claro"}>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}<span>{theme === "light" ? "Tema escuro" : "Tema claro"}</span></button>
             <button className="icon-button notification" aria-label="Notificações"><Bell size={20} /><span /></button>
             <div className="topbar-profile"><span>{profile.full_name.slice(0, 2).toUpperCase()}</span><div><strong>{profile.full_name}</strong><small>{profile.email}</small></div></div>
           </div>
@@ -388,6 +432,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
         </main>
       </div>
       {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="Fechar menu" />}
+      {presentationMode && <div className="presentation-toolbar"><div><BarChart3 size={17} /><span>Apresentação: {selectedArea?.name}</span></div><button onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label="Alternar tema">{theme === "light" ? <Moon size={16} /> : <Sun size={16} />}</button><button onClick={() => void togglePresentation()}><Minimize2 size={16} /><span>Sair da apresentação</span></button></div>}
       {toast && <div className="toast"><FileCheck2 size={19} />{toast}</div>}
     </div>
   );

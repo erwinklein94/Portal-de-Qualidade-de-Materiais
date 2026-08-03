@@ -496,11 +496,13 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState<Profile | null>(null);
+  const [editKind, setEditKind] = useState<UserKind>("supplier");
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<TeamRole>("viewer");
   const [editAreaId, setEditAreaId] = useState("");
   const [editSupplierId, setEditSupplierId] = useState("");
+  const [editCompanyName, setEditCompanyName] = useState("");
   const [editActive, setEditActive] = useState(true);
   const [editPassword, setEditPassword] = useState("");
   const [editPasswordConfirmation, setEditPasswordConfirmation] = useState("");
@@ -546,11 +548,13 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
 
   function startEditing(account: Profile) {
     setEditing(account);
+    setEditKind(account.user_kind);
     setEditName(account.full_name);
     setEditEmail(account.email);
     setEditRole(account.team_role ?? "viewer");
     setEditAreaId(account.area_id ?? "");
     setEditSupplierId(account.supplier_id ?? "");
+    setEditCompanyName(suppliers.find((supplier) => supplier.id === account.supplier_id)?.trade_name ?? "");
     setEditActive(account.is_active);
     setEditPassword("");
     setEditPasswordConfirmation("");
@@ -569,8 +573,8 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
       setEditMessage("A nova senha e a confirmação não são iguais.");
       return;
     }
-    if (editing.user_kind === "supplier" && (!editAreaId || !editSupplierId)) {
-      setEditMessage("Selecione a área e a empresa do fornecedor.");
+    if (editKind === "supplier" && (!editAreaId || (!editSupplierId && !editCompanyName.trim()))) {
+      setEditMessage("Selecione a área e informe ou selecione a empresa do fornecedor.");
       return;
     }
     if (editing.id === currentUserId && !editActive) {
@@ -585,10 +589,11 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
         id: editing.id,
         full_name: editName.trim(),
         email: editEmail.trim(),
-        user_kind: editing.user_kind,
-        team_role: editing.user_kind === "team" ? editRole : null,
-        area_id: editing.user_kind === "supplier" ? editAreaId : null,
-        supplier_id: editing.user_kind === "supplier" ? editSupplierId : null,
+        user_kind: editKind,
+        team_role: editKind === "team" ? editRole : null,
+        area_id: editKind === "supplier" ? editAreaId : null,
+        supplier_id: editKind === "supplier" ? editSupplierId || null : null,
+        supplier_name: editKind === "supplier" ? editCompanyName.trim() : null,
         is_active: editActive,
         password: editPassword || null,
       },
@@ -676,11 +681,13 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
           <form id="editar-conta" className="account-editor" onSubmit={saveAccount}>
             <div className="account-editor__heading"><div><p className="eyebrow">ALTERAR CONTA</p><h3>{editing.full_name}</h3></div><button type="button" className="editor-close" onClick={() => setEditing(null)} aria-label="Fechar edição"><X size={18} /></button></div>
             <div className="form-grid">
+              <label className="full-width">Tipo de conta<select value={editKind} onChange={(event) => setEditKind(event.target.value as UserKind)}><option value="team">Equipe Rumo</option><option value="supplier">Fornecedor</option></select></label>
               <label>Nome completo<input required value={editName} onChange={(event) => setEditName(event.target.value)} /></label>
               <label>E-mail<input required type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} /></label>
-              {editing.user_kind === "team" ? <label className="full-width">Perfil de acesso<select value={editRole} onChange={(event) => setEditRole(event.target.value as TeamRole)}><option value="editor">Editor</option><option value="analyst">Analista</option><option value="coordinator">Coordenador</option><option value="viewer">Consulta</option></select></label> : <>
-                <label>Área de atuação<select required value={editAreaId} onChange={(event) => { setEditAreaId(event.target.value); setEditSupplierId(""); }}><option value="">Selecione</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
-                <label>Empresa<select required value={editSupplierId} onChange={(event) => setEditSupplierId(event.target.value)}><option value="">Selecione</option>{suppliers.filter((supplier) => supplier.area_id === editAreaId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.trade_name}</option>)}</select></label>
+              {editKind === "team" ? <label className="full-width">Perfil de acesso<select value={editRole} onChange={(event) => setEditRole(event.target.value as TeamRole)}><option value="editor">Editor</option><option value="analyst">Analista</option><option value="coordinator">Coordenador</option><option value="viewer">Consulta</option></select></label> : <>
+                <label>Área de atuação<select required value={editAreaId} onChange={(event) => { setEditAreaId(event.target.value); setEditSupplierId(""); setEditCompanyName(""); }}><option value="">Selecione</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+                <label>Empresa cadastrada<select value={editSupplierId} onChange={(event) => { const nextId = event.target.value; setEditSupplierId(nextId); setEditCompanyName(suppliers.find((supplier) => supplier.id === nextId)?.trade_name ?? ""); }}><option value="">Cadastrar nova empresa</option>{suppliers.filter((supplier) => supplier.area_id === editAreaId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.trade_name}</option>)}</select></label>
+                <label className="full-width">Nome ou razão social da empresa<input required value={editCompanyName} onChange={(event) => setEditCompanyName(event.target.value)} placeholder="Nome completo da empresa" /></label>
               </>}
               <label>Nova senha (opcional)<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={editPassword} onChange={(event) => setEditPassword(event.target.value)} placeholder="Deixe em branco para manter" /></label>
               <label>Confirmar nova senha<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={editPasswordConfirmation} onChange={(event) => setEditPasswordConfirmation(event.target.value)} placeholder="Repita somente se alterar" /></label>

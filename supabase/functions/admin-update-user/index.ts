@@ -13,6 +13,7 @@ type UpdateAccountRequest = {
   team_role?: "editor" | "analyst" | "coordinator" | "viewer" | null;
   area_id?: string | null;
   supplier_id?: string | null;
+  supplier_name?: string | null;
   is_active: boolean;
   password?: string | null;
 };
@@ -67,15 +68,31 @@ Deno.serve(async (request) => {
   if (payload.user_kind === "team" && !payload.team_role) {
     return json({ error: "Selecione o perfil da equipe Rumo" }, 400);
   }
+  let supplierId = payload.supplier_id ?? null;
   if (payload.user_kind === "supplier") {
-    if (!payload.area_id || !payload.supplier_id) return json({ error: "Selecione a área e a empresa" }, 400);
-    const { data: supplier } = await admin
-      .from("suppliers")
-      .select("id")
-      .eq("id", payload.supplier_id)
-      .eq("area_id", payload.area_id)
-      .maybeSingle();
-    if (!supplier) return json({ error: "A empresa não pertence à área selecionada" }, 400);
+    const supplierName = payload.supplier_name?.trim();
+    if (!payload.area_id || (!supplierId && !supplierName)) return json({ error: "Selecione a área e informe a empresa" }, 400);
+    if (supplierId) {
+      const { data: supplier } = await admin
+        .from("suppliers")
+        .select("id")
+        .eq("id", supplierId)
+        .eq("area_id", payload.area_id)
+        .maybeSingle();
+      if (!supplier) return json({ error: "A empresa não pertence à área selecionada" }, 400);
+      if (supplierName) {
+        const { error: supplierError } = await admin.from("suppliers").update({ legal_name: supplierName, trade_name: supplierName }).eq("id", supplierId);
+        if (supplierError) return json({ error: supplierError.message }, 400);
+      }
+    } else {
+      const { data: supplier, error: supplierError } = await admin
+        .from("suppliers")
+        .insert({ legal_name: supplierName, trade_name: supplierName, area_id: payload.area_id, status: "active" })
+        .select("id")
+        .single();
+      if (supplierError || !supplier) return json({ error: supplierError?.message ?? "Não foi possível criar a empresa" }, 400);
+      supplierId = supplier.id;
+    }
   }
 
   const authAttributes: Record<string, unknown> = {
@@ -92,18 +109,20 @@ Deno.serve(async (request) => {
   const { error: authError } = await admin.auth.admin.updateUserById(payload.id, authAttributes);
   if (authError) return json({ error: authError.message }, 400);
 
+  const profileUpdates: Record<string, unknown> = {
+    full_name: fullName,
+    email,
+    user_kind: payload.user_kind,
+    team_role: payload.user_kind === "team" ? payload.team_role : null,
+    supplier_id: payload.user_kind === "supplier" ? supplierId : null,
+    area_id: payload.user_kind === "supplier" ? payload.area_id : null,
+    is_active: payload.is_active,
+  };
+  if (payload.password) profileUpdates.must_change_password = true;
+
   const { error: profileError } = await admin
     .from("profiles")
-    .update({
-      full_name: fullName,
-      email,
-      user_kind: payload.user_kind,
-      team_role: payload.user_kind === "team" ? payload.team_role : null,
-      supplier_id: payload.user_kind === "supplier" ? payload.supplier_id : null,
-      area_id: payload.user_kind === "supplier" ? payload.area_id : null,
-      is_active: payload.is_active,
-      must_change_password: payload.password ? true : undefined,
-    })
+    .update(profileUpdates)
     .eq("id", payload.id);
   if (profileError) return json({ error: profileError.message }, 400);
 

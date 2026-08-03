@@ -468,12 +468,22 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
   const [areaId, setAreaId] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [newCompany, setNewCompany] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
     if (!canManage) return;
+    if (newPassword.length < 8) {
+      setMessage("A senha inicial deve ter pelo menos 8 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage("A senha e a confirmação não são iguais.");
+      return;
+    }
     setSubmitting(true);
     setMessage("");
     const { error } = await supabase.functions.invoke("admin-create-user", {
@@ -483,10 +493,20 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
         area_id: kind === "supplier" ? areaId : null,
         supplier_id: kind === "supplier" ? supplierId || null : null,
         supplier_name: kind === "supplier" && !supplierId ? newCompany.trim() : null,
+        password: newPassword,
       },
     });
-    if (error) setMessage("Não foi possível criar a conta. Verifique os dados ou tente novamente.");
-    else { setMessage("Conta criada. Uma senha inicial temporária foi definida pelo serviço seguro."); setName(""); setEmail(""); setNewCompany(""); onCreated(); }
+    if (error) {
+      let reason = "Não foi possível criar a conta. Verifique os dados ou tente novamente.";
+      if ("context" in error && error.context instanceof Response) {
+        try {
+          const body = await error.context.clone().json() as { error?: string };
+          if (body.error) reason = body.error;
+        } catch { /* mantém a mensagem padrão */ }
+      }
+      setMessage(reason);
+    }
+    else { setMessage("Conta criada com sucesso. Informe a senha inicial ao novo usuário por um canal seguro."); setName(""); setEmail(""); setNewCompany(""); setNewPassword(""); setConfirmPassword(""); onCreated(); }
     setSubmitting(false);
   }
 
@@ -503,6 +523,8 @@ function AccountsPage({ areas, suppliers, canManage, onCreated }: { areas: Mater
           <div className="form-grid">
             <label>Nome completo<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome do usuário" /></label>
             <label>E-mail<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="usuario@empresa.com" /></label>
+            <label>Senha inicial<input required type="password" minLength={8} maxLength={72} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Mínimo de 8 caracteres" /></label>
+            <label>Confirmar senha<input required type="password" minLength={8} maxLength={72} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Digite a senha novamente" /></label>
             {kind === "team" ? <label className="full-width">Perfil de acesso<select value={role} onChange={(event) => setRole(event.target.value as TeamRole)}><option value="editor">Editor</option><option value="analyst">Analista</option><option value="coordinator">Coordenador</option><option value="viewer">Consulta</option></select></label> : <>
               <label>Área de atuação<select required value={areaId} onChange={(event) => { setAreaId(event.target.value); setSupplierId(""); }}><option value="">Selecione a área</option>{areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select></label>
               <label>Empresa cadastrada<select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}><option value="">Cadastrar nova empresa</option>{suppliers.filter((supplier) => supplier.area_id === areaId).map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.trade_name}</option>)}</select></label>

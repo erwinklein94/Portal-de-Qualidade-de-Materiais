@@ -23,7 +23,7 @@ pnpm dev
 pnpm build
 ```
 
-As variáveis públicas do Supabase estão documentadas em `.env.example`. O arquivo `supabase/schema.sql` contém o modelo inicial e as políticas de acesso. Antes de publicar a Edge Function `admin-create-user`, configure o secret `INITIAL_USER_PASSWORD` no Supabase.
+As variáveis públicas do Supabase estão documentadas em `.env.example`. O arquivo `supabase/schema.sql` contém o modelo inicial e as políticas de acesso. A Edge Function `admin-create-user` recebe a senha inicial definida por um Editor ou Coordenador no formulário protegido de criação de contas.
 
 ## Segurança
 

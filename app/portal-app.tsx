@@ -77,7 +77,7 @@ type QualityRecord = {
   payload: Record<string, unknown>;
 };
 
-type WoodSleeperPayload = {
+type MaterialQualityPayload = {
   order_number: string;
   total_order_volume: number;
   inspected_volume: number;
@@ -278,7 +278,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     const [areasResult, suppliersResult, recordsResult, accountsResult] = await Promise.all([
       supabase.from("material_areas").select("*").order("sort_order"),
       supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name"),
-      supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload").order("updated_at", { ascending: false }).limit(100),
+      supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload").order("updated_at", { ascending: false }).limit(1000),
       supabase.from("profiles").select("id, full_name, email, user_kind, team_role, supplier_id, area_id, is_active, must_change_password").order("full_name"),
     ]);
     setAreas((areasResult.data as MaterialArea[]) ?? []);
@@ -441,7 +441,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               canCreate={canCreateAccounts}
               canEdit={canEditAccounts}
               onChanged={() => { void loadData(); notify("Contas atualizadas com sucesso."); }}
-              onExamplesActivated={() => { void loadData(); notify("Exemplos de Dormente de Madeira ativados."); }}
+              onExamplesActivated={() => { void loadData(); notify("Exemplos de todas as áreas ativados."); }}
             />
           )}
         </main>
@@ -504,16 +504,15 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
   supplierFilter: string; setSupplierFilter: (value: string) => void; dateFilter: string; setDateFilter: (value: string) => void; weekFilter: string; setWeekFilter: (value: string) => void; isTeam: boolean;
   currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void;
 }) {
-  const approved = records.filter((record) => record.status === "approved").length;
   const openNewRecord = () => {
     setMode("records");
-    window.setTimeout(() => document.getElementById("wood-sleeper-record-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    window.setTimeout(() => document.getElementById("material-record-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   return (
     <>
       <section className="area-hero" style={{ "--area-accent": area.accent_color } as React.CSSProperties}>
         <div><p className="eyebrow">ÁREA DE MATERIAL</p><h1>{area.name}</h1><p>{area.description}</p></div>
-        {!isTeam && area.code === "wood_sleeper" && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}
+        {!isTeam && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}
       </section>
       <div className="view-tabs">
         <button className={mode === "dashboard" ? "active" : ""} onClick={() => setMode("dashboard")}><BarChart3 size={17} /> Dashboard</button>
@@ -527,19 +526,13 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>
       </section>
       {mode === "dashboard" ? (
-        area.code === "wood_sleeper" ? <WoodSleeperDashboard records={records} suppliers={suppliers} /> : (
-          <section className="dashboard-grid">
-            <article className="chart-card"><div className="card-heading"><div><span>Conformidade</span><strong>{records.length ? Math.round((approved / records.length) * 100) : 0}%</strong></div><span className="status-pill">Período filtrado</span></div><div className="donut" style={{ "--value": `${records.length ? Math.round((approved / records.length) * 100) : 0}%`, "--accent": area.accent_color } as React.CSSProperties}><div><strong>{approved}</strong><span>aprovados</span></div></div><div className="chart-legend"><span><i className="approved" /> Aprovados</span><span><i className="pending" /> Em análise</span><span><i className="rejected" /> Reprovados</span></div></article>
-            <article className="chart-card chart-card--wide"><div className="card-heading"><div><span>Registros por semana</span><p>Evolução das informações recebidas</p></div></div>{records.length ? <div className="bar-chart">{[35, 55, 42, 75, 58, 84, 70, 92].map((height, index) => <div key={index}><span style={{ height: `${height}%`, background: area.accent_color }} /><small>S{index + 1}</small></div>)}</div> : <EmptyState compact />}</article>
-            <article className="chart-card chart-card--full"><div className="card-heading"><div><span>Fornecedores da área</span><p>Visão consolidada por empresa</p></div></div><RecordsTable records={records} suppliers={suppliers} compact /></article>
-          </section>
-        )
+        <MaterialQualityDashboard records={records} suppliers={suppliers} />
       ) : (
         <>
-          {!isTeam && area.code === "wood_sleeper" && currentSupplierId && <WoodSleeperRecordForm areaId={area.id} supplierId={currentSupplierId} currentUserId={currentUserId} onCreated={onRecordCreated} />}
+          {!isTeam && currentSupplierId && <MaterialQualityRecordForm area={area} supplierId={currentSupplierId} currentUserId={currentUserId} onCreated={onRecordCreated} />}
           <section className="records-card">
-            <div className="records-head"><div><h2>Registros de qualidade</h2><p>{records.length} registro(s) no período selecionado</p></div>{!isTeam && area.code === "wood_sleeper" && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}</div>
-            {area.code === "wood_sleeper" ? <WoodSleeperRecordsTable records={records} suppliers={suppliers} /> : <RecordsTable records={records} suppliers={suppliers} />}
+            <div className="records-head"><div><h2>Registros de qualidade</h2><p>{records.length} registro(s) no período selecionado</p></div>{!isTeam && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}</div>
+            <MaterialQualityRecordsTable records={records} suppliers={suppliers} />
           </section>
         </>
       )}
@@ -547,7 +540,7 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
   );
 }
 
-function payloadNumber(record: QualityRecord, key: keyof Omit<WoodSleeperPayload, "order_number">) {
+function payloadNumber(record: QualityRecord, key: keyof Omit<MaterialQualityPayload, "order_number">) {
   const value = record.payload?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -557,7 +550,7 @@ function approvalRate(inspected: number, rejected: number) {
   return Math.max(0, Math.min(100, ((inspected - rejected) / inspected) * 100));
 }
 
-function WoodSleeperDashboard({ records, suppliers }: { records: QualityRecord[]; suppliers: Supplier[] }) {
+function MaterialQualityDashboard({ records, suppliers }: { records: QualityRecord[]; suppliers: Supplier[] }) {
   const [activeChart, setActiveChart] = useState<QualityChartConfig | null>(null);
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.trade_name])), [suppliers]);
 
@@ -649,7 +642,7 @@ function WoodSleeperDashboard({ records, suppliers }: { records: QualityRecord[]
 
   return (
     <>
-      <section className="wood-kpi-grid">
+      <section className="material-kpi-grid">
         <Metric label="Peças inspecionadas" value={formatPieces(dashboard.overall.inspected)} detail="Volume acumulado no período" color="cyan" icon={<Search />} />
         <Metric label="Peças aprovadas" value={formatPieces(approvedPieces)} detail="Inspecionadas menos reprovas" color="green" icon={<ShieldCheck />} />
         <Metric label="Taxa de aprovação" value={`${approvalRate(dashboard.overall.inspected, dashboard.overall.rejected).toFixed(1)}%`} detail="Desempenho geral filtrado" color="blue" icon={<Gauge />} />
@@ -657,7 +650,7 @@ function WoodSleeperDashboard({ records, suppliers }: { records: QualityRecord[]
       </section>
       <section className="quality-charts-grid">
         {dashboard.charts.map((chart) => <QualityChartCard chart={chart} key={chart.id} onOpen={() => setActiveChart(chart)} />)}
-        <article className="chart-card quality-records-summary"><div className="card-heading"><div><span>Registros que compõem os indicadores</span><p>Dados filtrados enviados pelos fornecedores</p></div></div><WoodSleeperRecordsTable records={records} suppliers={suppliers} compact /></article>
+        <article className="chart-card quality-records-summary"><div className="card-heading"><div><span>Registros que compõem os indicadores</span><p>Dados filtrados enviados pelos fornecedores</p></div></div><MaterialQualityRecordsTable records={records} suppliers={suppliers} compact /></article>
       </section>
       {activeChart && <QualityChartModal chart={activeChart} onClose={() => setActiveChart(null)} />}
     </>
@@ -712,8 +705,8 @@ function getIsoWeek(dateValue: string) {
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
-function WoodSleeperRecordForm({ areaId, supplierId, currentUserId, onCreated }: {
-  areaId: string; supplierId: string; currentUserId: string; onCreated: () => void;
+function MaterialQualityRecordForm({ area, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; supplierId: string; currentUserId: string; onCreated: () => void;
 }) {
   const [referenceDate, setReferenceDate] = useState(new Date().toISOString().slice(0, 10));
   const [orderNumber, setOrderNumber] = useState("");
@@ -737,7 +730,7 @@ function WoodSleeperRecordForm({ areaId, supplierId, currentUserId, onCreated }:
     setSubmitting(true);
     setMessage("");
     setHasError(false);
-    const payload: WoodSleeperPayload = {
+    const payload: MaterialQualityPayload = {
       order_number: orderNumber.trim(),
       total_order_volume: volumes[0],
       inspected_volume: volumes[1],
@@ -746,7 +739,7 @@ function WoodSleeperRecordForm({ areaId, supplierId, currentUserId, onCreated }:
     };
     const { error } = await supabase.from("quality_records").insert({
       supplier_id: supplierId,
-      area_id: areaId,
+      area_id: area.id,
       reference_date: referenceDate,
       reference_week: getIsoWeek(referenceDate),
       status: "submitted",
@@ -771,9 +764,9 @@ function WoodSleeperRecordForm({ areaId, supplierId, currentUserId, onCreated }:
   }
 
   return (
-    <form id="wood-sleeper-record-form" className="material-record-form" onSubmit={submitRecord}>
+    <form id="material-record-form" className="material-record-form" onSubmit={submitRecord}>
       <div className="material-record-form__heading">
-        <div><p className="eyebrow">NOVO REGISTRO</p><h2>Dormente de Madeira</h2><p>Preencha os dados do pedido e envie para análise da equipe Rumo.</p></div>
+        <div><p className="eyebrow">NOVO REGISTRO</p><h2>{area.name}</h2><p>Preencha os dados do pedido e envie para análise da equipe Rumo.</p></div>
         <div className="account-icon"><ClipboardCheck /></div>
       </div>
       <div className="form-grid material-record-grid">
@@ -790,15 +783,10 @@ function WoodSleeperRecordForm({ areaId, supplierId, currentUserId, onCreated }:
   );
 }
 
-function WoodSleeperRecordsTable({ records, suppliers, compact = false }: { records: QualityRecord[]; suppliers: Supplier[]; compact?: boolean }) {
+function MaterialQualityRecordsTable({ records, suppliers, compact = false }: { records: QualityRecord[]; suppliers: Supplier[]; compact?: boolean }) {
   if (!records.length) return <EmptyState compact={compact} />;
   const formatVolume = (value: unknown) => typeof value === "number" ? new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value) : "—";
-  return <div className="table-wrap"><table className="wood-sleeper-table"><thead><tr><th>Fornecedor</th><th>Pedido</th><th>Data</th><th>Semana</th><th>Volume total</th><th>Volume inspecionado</th><th>Reprovas</th><th>Estoque liberado</th><th>Status</th></tr></thead><tbody>{records.slice(0, compact ? 5 : 50).map((record) => <tr key={record.id}><td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td><td>{String(record.payload?.order_number ?? "—")}</td><td>{new Intl.DateTimeFormat("pt-BR").format(new Date(`${record.reference_date}T12:00:00`))}</td><td>Semana {record.reference_week}</td><td>{formatVolume(record.payload?.total_order_volume)}</td><td>{formatVolume(record.payload?.inspected_volume)}</td><td>{formatVolume(record.payload?.rejected_volume)}</td><td>{formatVolume(record.payload?.released_stock_volume)}</td><td><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span></td></tr>)}</tbody></table></div>;
-}
-
-function RecordsTable({ records, suppliers, compact = false }: { records: QualityRecord[]; suppliers: Supplier[]; compact?: boolean }) {
-  if (!records.length) return <EmptyState compact={compact} />;
-  return <div className="table-wrap"><table><thead><tr><th>Fornecedor</th><th>Data de referência</th><th>Semana</th><th>Status</th><th>Última atualização</th></tr></thead><tbody>{records.slice(0, compact ? 5 : 50).map((record) => <tr key={record.id}><td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td><td>{new Intl.DateTimeFormat("pt-BR").format(new Date(`${record.reference_date}T12:00:00`))}</td><td>Semana {record.reference_week}</td><td><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span></td><td>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(record.updated_at))}</td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="material-quality-table"><thead><tr><th>Fornecedor</th><th>Pedido</th><th>Data</th><th>Semana</th><th>Volume total</th><th>Volume inspecionado</th><th>Reprovas</th><th>Estoque liberado</th><th>Status</th></tr></thead><tbody>{records.slice(0, compact ? 5 : 100).map((record) => <tr key={record.id}><td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td><td>{String(record.payload?.order_number ?? "—")}</td><td>{new Intl.DateTimeFormat("pt-BR").format(new Date(`${record.reference_date}T12:00:00`))}</td><td>Semana {record.reference_week}</td><td>{formatVolume(record.payload?.total_order_volume)}</td><td>{formatVolume(record.payload?.inspected_volume)}</td><td>{formatVolume(record.payload?.rejected_volume)}</td><td>{formatVolume(record.payload?.released_stock_volume)}</td><td><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span></td></tr>)}</tbody></table></div>;
 }
 
 function EmptyState({ compact = false }: { compact?: boolean }) {
@@ -860,10 +848,10 @@ function AccountsPage({ areas, suppliers, accounts, currentUserId, canCreate, ca
       setExampleError(true);
       setExampleMessage(reason);
     } else {
-      const result = data as { created?: number; total?: number; suppliers?: number; already_active?: boolean };
+      const result = data as { created?: number; total?: number; suppliers?: number; areas?: number; already_active?: boolean };
       setExampleMessage(result.already_active
-        ? `Os ${result.total ?? 0} exemplos já estavam ativos para ${result.suppliers ?? 0} fornecedores.`
-        : `${result.created ?? 0} exemplos ativados para ${result.suppliers ?? 0} fornecedores de Dormente de Madeira.`);
+        ? `Os ${result.total ?? 0} exemplos já estavam ativos nas ${result.areas ?? 0} áreas.`
+        : `${result.created ?? 0} exemplos ativados nas ${result.areas ?? 0} áreas para ${result.suppliers ?? 0} fornecedores.`);
       onExamplesActivated();
     }
     setActivatingExamples(false);

@@ -5,7 +5,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const exampleBatch = "wood_sleeper_examples_v1";
+const exampleBatch = "all_material_examples_v2";
+const examplesPerArea = 35;
+const areaPrefixes: Record<string, string> = {
+  amv: "AMV",
+  wood_sleeper: "DM",
+  concrete_sleeper: "DC",
+  ballast: "LAST",
+  subcomponents: "SUB",
+};
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -47,65 +55,73 @@ Deno.serve(async (request) => {
     return json({ error: "Somente Editor e Coordenador podem ativar exemplos." }, 403);
   }
 
-  const { data: area, error: areaError } = await admin
+  const { data: areas, error: areasError } = await admin
     .from("material_areas")
-    .select("id")
-    .eq("code", "wood_sleeper")
-    .single();
-  if (areaError || !area) return json({ error: "Área de Dormente de Madeira não encontrada." }, 404);
+    .select("id, code, name")
+    .eq("is_active", true)
+    .order("sort_order");
+  if (areasError) return json({ error: areasError.message }, 400);
+  if (!areas?.length) return json({ error: "Nenhuma área de materiais foi encontrada." }, 400);
 
-  const { data: suppliers, error: suppliersError } = await admin
+  const { data: allSuppliers, error: suppliersError } = await admin
     .from("suppliers")
-    .select("id, trade_name")
-    .eq("area_id", area.id)
+    .select("id, area_id, trade_name")
     .eq("status", "active")
     .order("trade_name");
   if (suppliersError) return json({ error: suppliersError.message }, 400);
-  if (!suppliers?.length) return json({ error: "Nenhum fornecedor ativo de Dormente de Madeira foi encontrado." }, 400);
-
-  const recordsPerSupplier = Math.max(5, Math.ceil(30 / suppliers.length));
-  const targetCount = recordsPerSupplier * suppliers.length;
-  const { count: existingCount, error: countError } = await admin
-    .from("quality_records")
-    .select("id", { count: "exact", head: true })
-    .eq("area_id", area.id)
-    .contains("payload", { example_batch: exampleBatch });
-  if (countError) return json({ error: countError.message }, 400);
-  if ((existingCount ?? 0) >= targetCount) {
-    return json({ created: 0, total: existingCount, suppliers: suppliers.length, already_active: true });
-  }
-
-  if ((existingCount ?? 0) > 0) {
-    const { error: deleteError } = await admin
-      .from("quality_records")
-      .delete()
-      .eq("area_id", area.id)
-      .contains("payload", { example_batch: exampleBatch });
-    if (deleteError) return json({ error: deleteError.message }, 400);
-  }
 
   const today = new Date();
-  const records = suppliers.flatMap((supplier, supplierIndex) =>
-    Array.from({ length: recordsPerSupplier }, (_, recordIndex) => {
-      const sequence = supplierIndex * recordsPerSupplier + recordIndex + 1;
-      const referenceDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-      referenceDate.setUTCDate(referenceDate.getUTCDate() - (recordIndex * 17 + supplierIndex * 4 + 3));
-      const totalOrder = 760 + supplierIndex * 95 + recordIndex * 70;
-      const inspectionRate = 0.72 + ((supplierIndex + recordIndex) % 5) * 0.055;
-      const inspected = Math.round(totalOrder * Math.min(0.96, inspectionRate));
-      const rejectionRate = 0.012 + ((supplierIndex * 2 + recordIndex) % 6) * 0.011;
-      const rejected = Math.max(1, Math.round(inspected * rejectionRate));
-      const released = Math.max(0, inspected - rejected - ((supplierIndex + recordIndex) % 4) * 6);
-      const status = sequence % 4 === 0 ? "under_review" : sequence % 3 === 0 ? "submitted" : "approved";
+  const records = [];
+  let activeExampleCount = 0;
+  let supplierCount = 0;
 
-      return {
+  for (const [areaIndex, area] of areas.entries()) {
+    const areaSuppliers = (allSuppliers ?? []).filter((supplier) => supplier.area_id === area.id);
+    if (!areaSuppliers.length) return json({ error: `Nenhum fornecedor ativo foi encontrado para ${area.name}.` }, 400);
+    supplierCount += areaSuppliers.length;
+
+    const { count: existingCount, error: countError } = await admin
+      .from("quality_records")
+      .select("id", { count: "exact", head: true })
+      .eq("area_id", area.id)
+      .contains("payload", { example_record: true });
+    if (countError) return json({ error: countError.message }, 400);
+
+    if ((existingCount ?? 0) >= examplesPerArea) {
+      activeExampleCount += existingCount ?? 0;
+      continue;
+    }
+
+    if ((existingCount ?? 0) > 0) {
+      const { error: deleteError } = await admin
+        .from("quality_records")
+        .delete()
+        .eq("area_id", area.id)
+        .contains("payload", { example_record: true });
+      if (deleteError) return json({ error: deleteError.message }, 400);
+    }
+
+    const prefix = areaPrefixes[area.code] ?? area.code.toUpperCase().slice(0, 4);
+    for (let recordIndex = 0; recordIndex < examplesPerArea; recordIndex += 1) {
+      const supplier = areaSuppliers[recordIndex % areaSuppliers.length];
+      const referenceDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      referenceDate.setUTCDate(referenceDate.getUTCDate() - (recordIndex * 5 + areaIndex * 2 + 3));
+      const totalOrder = 720 + areaIndex * 85 + (recordIndex % 9) * 68;
+      const inspectionRate = 0.7 + ((areaIndex + recordIndex) % 6) * 0.048;
+      const inspected = Math.round(totalOrder * Math.min(0.96, inspectionRate));
+      const rejectionRate = 0.012 + ((areaIndex * 3 + recordIndex) % 7) * 0.009;
+      const rejected = Math.max(1, Math.round(inspected * rejectionRate));
+      const released = Math.max(0, inspected - rejected - ((areaIndex + recordIndex) % 5) * 5);
+      const status = recordIndex % 5 === 0 ? "under_review" : recordIndex % 4 === 0 ? "submitted" : "approved";
+
+      records.push({
         supplier_id: supplier.id,
         area_id: area.id,
         reference_date: referenceDate.toISOString().slice(0, 10),
         reference_week: isoWeek(referenceDate),
         status,
         payload: {
-          order_number: `EX-DM-${String(sequence).padStart(4, "0")}`,
+          order_number: `EX-${prefix}-${String(recordIndex + 1).padStart(4, "0")}`,
           total_order_volume: totalOrder,
           inspected_volume: inspected,
           rejected_volume: rejected,
@@ -117,12 +133,21 @@ Deno.serve(async (request) => {
         submitted_at: referenceDate.toISOString(),
         reviewed_by: status === "approved" ? userData.user.id : null,
         reviewed_at: status === "approved" ? referenceDate.toISOString() : null,
-      };
-    })
-  );
+      });
+    }
+  }
 
-  const { error: insertError } = await admin.from("quality_records").insert(records);
-  if (insertError) return json({ error: insertError.message }, 400);
+  if (records.length) {
+    const { error: insertError } = await admin.from("quality_records").insert(records);
+    if (insertError) return json({ error: insertError.message }, 400);
+  }
 
-  return json({ created: records.length, total: records.length, suppliers: suppliers.length, already_active: false });
+  const total = activeExampleCount + records.length;
+  return json({
+    created: records.length,
+    total,
+    areas: areas.length,
+    suppliers: supplierCount,
+    already_active: records.length === 0,
+  });
 });

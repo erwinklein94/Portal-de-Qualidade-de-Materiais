@@ -90,40 +90,30 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
-declare
-  material_code text;
 begin
-  select code into material_code from public.material_areas where id = new.area_id;
-
   if not exists (
     select 1 from public.suppliers where id = new.supplier_id and area_id = new.area_id
   ) then
     raise exception 'O fornecedor informado não pertence à área do registro.';
   end if;
 
-  if material_code = 'wood_sleeper' then
-    if jsonb_typeof(new.payload) <> 'object'
-      or nullif(btrim(new.payload ->> 'order_number'), '') is null
-      or not (new.payload ?& array[
-        'total_order_volume', 'inspected_volume', 'rejected_volume', 'released_stock_volume'
-      ])
-      or jsonb_typeof(new.payload -> 'total_order_volume') is distinct from 'number'
-      or jsonb_typeof(new.payload -> 'inspected_volume') is distinct from 'number'
-      or jsonb_typeof(new.payload -> 'rejected_volume') is distinct from 'number'
-      or jsonb_typeof(new.payload -> 'released_stock_volume') is distinct from 'number' then
-      raise exception 'Os campos obrigatórios de Dormente de Madeira não foram informados.';
-    end if;
+  if jsonb_typeof(new.payload) <> 'object'
+    or nullif(btrim(new.payload ->> 'order_number'), '') is null
+    or not (new.payload ?& array[
+      'total_order_volume', 'inspected_volume', 'rejected_volume', 'released_stock_volume'
+    ])
+    or jsonb_typeof(new.payload -> 'total_order_volume') is distinct from 'number'
+    or jsonb_typeof(new.payload -> 'inspected_volume') is distinct from 'number'
+    or jsonb_typeof(new.payload -> 'rejected_volume') is distinct from 'number'
+    or jsonb_typeof(new.payload -> 'released_stock_volume') is distinct from 'number' then
+    raise exception 'Os campos obrigatórios do registro de qualidade não foram informados.';
+  end if;
 
-    begin
-      if (new.payload ->> 'total_order_volume')::numeric < 0
-        or (new.payload ->> 'inspected_volume')::numeric < 0
-        or (new.payload ->> 'rejected_volume')::numeric < 0
-        or (new.payload ->> 'released_stock_volume')::numeric < 0 then
-        raise exception 'Os volumes devem ser iguais ou maiores que zero.';
-      end if;
-    exception when invalid_text_representation then
-      raise exception 'Os volumes devem ser valores numéricos válidos.';
-    end;
+  if (new.payload ->> 'total_order_volume')::numeric < 0
+    or (new.payload ->> 'inspected_volume')::numeric < 0
+    or (new.payload ->> 'rejected_volume')::numeric < 0
+    or (new.payload ->> 'released_stock_volume')::numeric < 0 then
+    raise exception 'Os volumes devem ser iguais ou maiores que zero.';
   end if;
 
   return new;

@@ -209,7 +209,7 @@ button { cursor: pointer; }
 .bar-chart > div { height: 100%; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; }
 .bar-chart span { width: min(28px, 75%); min-height: 4px; border-radius: 4px 4px 0 0; opacity: .85; }
 .bar-chart small { color: var(--muted); font-size: 8px; }
-.wood-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+.material-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
 .quality-charts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .quality-chart-card { position: relative; min-height: 350px; overflow: hidden; cursor: zoom-in; transition: transform .2s, border-color .2s, box-shadow .2s; }
 .quality-chart-card:hover, .quality-chart-card:focus-visible { transform: translateY(-2px); border-color: var(--rumo-cyan); box-shadow: var(--shadow); outline: none; }
@@ -245,8 +245,8 @@ button { cursor: pointer; }
 .material-record-grid label { line-height: 1.35; }
 .material-record-form__actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
 .material-record-form__actions > span { color: var(--muted); font-size: 11px; }
-.wood-sleeper-table { min-width: 1180px; }
-.wood-sleeper-table td:not(:first-child), .wood-sleeper-table th:not(:first-child) { white-space: nowrap; }
+.material-quality-table { min-width: 1180px; }
+.material-quality-table td:not(:first-child), .material-quality-table th:not(:first-child) { white-space: nowrap; }
 .records-head { padding: 20px 22px; border-bottom: 1px solid var(--line); }
 .records-head p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
 .table-wrap { overflow-x: auto; }
@@ -410,7 +410,7 @@ td strong { color: var(--rumo-blue); }
 
 @media (max-width: 1250px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
-  .wood-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .material-kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .area-card-grid { grid-template-columns: repeat(3, 1fr); }
   .topbar-control span { display: none; }
 }
@@ -448,7 +448,7 @@ td strong { color: var(--rumo-blue); }
   .login-card h2 { font-size: 30px; }
   .access-switch { grid-template-columns: 1fr; }
   .metric-grid, .area-card-grid, .type-choice, .form-grid { grid-template-columns: 1fr; }
-  .wood-kpi-grid { grid-template-columns: 1fr; }
+  .material-kpi-grid { grid-template-columns: 1fr; }
   .chart-modal-backdrop { padding: 10px; }
   .chart-modal { width: 100%; padding: 20px 16px; }
   .quality-bar-chart--expanded { height: 58vh; }

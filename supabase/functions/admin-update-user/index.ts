@@ -68,6 +68,16 @@ Deno.serve(async (request) => {
   if (payload.user_kind === "team" && !payload.team_role) {
     return json({ error: "Selecione o perfil da equipe Rumo" }, 400);
   }
+
+  const { data: existingProfile, error: existingProfileError } = await admin
+    .from("profiles")
+    .select("user_kind, supplier_id, area_id")
+    .eq("id", payload.id)
+    .single();
+  if (existingProfileError || !existingProfile) {
+    return json({ error: "A conta que seria alterada não foi encontrada" }, 404);
+  }
+
   let supplierId = payload.supplier_id ?? null;
   if (payload.user_kind === "supplier") {
     const supplierName = payload.supplier_name?.trim();
@@ -126,5 +136,47 @@ Deno.serve(async (request) => {
     .eq("id", payload.id);
   if (profileError) return json({ error: profileError.message }, 400);
 
-  return json({ id: payload.id, email });
+  const previousSupplierId = existingProfile.user_kind === "supplier" ? existingProfile.supplier_id : null;
+  const supplierChanged = previousSupplierId && previousSupplierId !== supplierId;
+  let previousSupplierRemoved = false;
+
+  if (supplierChanged) {
+    const { count: remainingAccounts, error: accountsError } = await admin
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("supplier_id", previousSupplierId);
+    if (accountsError) return json({ error: `Conta atualizada, mas não foi possível verificar o cadastro anterior: ${accountsError.message}` }, 500);
+
+    if ((remainingAccounts ?? 0) === 0) {
+      if (payload.user_kind === "supplier" && supplierId && payload.area_id) {
+        const { error: recordsError } = await admin
+          .from("quality_records")
+          .update({ supplier_id: supplierId, area_id: payload.area_id })
+          .eq("supplier_id", previousSupplierId);
+        if (recordsError) return json({ error: `Conta atualizada, mas não foi possível transferir os registros anteriores: ${recordsError.message}` }, 500);
+
+        const { error: deleteSupplierError } = await admin
+          .from("suppliers")
+          .delete()
+          .eq("id", previousSupplierId);
+        if (deleteSupplierError) return json({ error: `Conta atualizada, mas não foi possível remover o cadastro anterior: ${deleteSupplierError.message}` }, 500);
+        previousSupplierRemoved = true;
+      } else {
+        const { count: existingRecords, error: recordsCountError } = await admin
+          .from("quality_records")
+          .select("id", { count: "exact", head: true })
+          .eq("supplier_id", previousSupplierId);
+        if (recordsCountError) return json({ error: `Conta atualizada, mas não foi possível verificar o histórico anterior: ${recordsCountError.message}` }, 500);
+
+        const cleanupQuery = (existingRecords ?? 0) === 0
+          ? admin.from("suppliers").delete().eq("id", previousSupplierId)
+          : admin.from("suppliers").update({ status: "inactive" }).eq("id", previousSupplierId);
+        const { error: cleanupError } = await cleanupQuery;
+        if (cleanupError) return json({ error: `Conta atualizada, mas não foi possível finalizar o cadastro anterior: ${cleanupError.message}` }, 500);
+        previousSupplierRemoved = (existingRecords ?? 0) === 0;
+      }
+    }
+  }
+
+  return json({ id: payload.id, email, previous_supplier_removed: previousSupplierRemoved });
 });

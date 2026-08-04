@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
@@ -274,6 +274,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [presentationMode, setPresentationMode] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const latestLoadRequest = useRef(0);
 
   const isTeam = profile.user_kind === "team";
   const canCreateAccounts =
@@ -284,6 +285,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     isTeam && ["editor", "analyst", "coordinator"].includes(profile.team_role ?? "");
 
   const loadData = useCallback(async () => {
+    const requestId = ++latestLoadRequest.current;
     setDataLoading(true);
     let areasQuery = supabase.from("material_areas").select("*").order("sort_order");
     let suppliersQuery = supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name");
@@ -309,6 +311,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
         ? supabase.from("profiles").select("id, full_name, email, user_kind, team_role, supplier_id, area_id, is_active, must_change_password").order("full_name")
         : Promise.resolve({ data: [] as Profile[] }),
     ]);
+    if (requestId !== latestLoadRequest.current) return;
     setAreas((areasResult.data as MaterialArea[]) ?? []);
     setSuppliers((suppliersResult.data as Supplier[]) ?? []);
     setRecords((recordsResult.data as QualityRecord[]) ?? []);
@@ -506,7 +509,11 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               currentUserId={session.user.id}
               currentSupplierId={profile.supplier_id}
               onRecordCreated={() => { void loadData(); notify("Registro enviado para a equipe Rumo com sucesso."); }}
-              onRecordReviewed={() => { void loadData(); notify("Status do registro atualizado com sucesso."); }}
+              onRecordReviewed={(updatedRecord) => {
+                setRecords((current) => [updatedRecord, ...current.filter((record) => record.id !== updatedRecord.id)]);
+                void loadData();
+                notify("Status do registro atualizado com sucesso.");
+              }}
             />
           )}
           {activeView === "accounts" && isTeam && (
@@ -579,7 +586,7 @@ function Metric({ label, value, detail, color, icon }: { label: string; value: s
 function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter, setSupplierFilter, dateFilter, setDateFilter, weekFilter, setWeekFilter, isTeam, canReview, currentUserId, currentSupplierId, onRecordCreated, onRecordReviewed }: {
   area: MaterialArea; mode: "dashboard" | "records"; setMode: (mode: "dashboard" | "records") => void; suppliers: Supplier[]; records: QualityRecord[];
   supplierFilter: string; setSupplierFilter: (value: string) => void; dateFilter: string; setDateFilter: (value: string) => void; weekFilter: string; setWeekFilter: (value: string) => void; isTeam: boolean; canReview: boolean;
-  currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void; onRecordReviewed: () => void;
+  currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void; onRecordReviewed: (record: QualityRecord) => void;
 }) {
   const openNewRecord = () => {
     setMode("records");
@@ -917,7 +924,7 @@ function MaterialQualityRecordsTable({ records, suppliers, compact = false, isTe
   isTeam?: boolean;
   canReview?: boolean;
   currentUserId?: string;
-  onChanged?: () => void;
+  onChanged?: (record: QualityRecord) => void;
 }) {
   const [rejectingRecord, setRejectingRecord] = useState<QualityRecord | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -941,7 +948,7 @@ function MaterialQualityRecordsTable({ records, suppliers, compact = false, isTe
     setUpdatingId(record.id);
     setReviewError("");
     const completed = status === "approved" || status === "rejected";
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("quality_records")
       .update({
         status,
@@ -949,14 +956,16 @@ function MaterialQualityRecordsTable({ records, suppliers, compact = false, isTe
         reviewed_by: currentUserId,
         reviewed_at: completed ? new Date().toISOString() : null,
       })
-      .eq("id", record.id);
+      .eq("id", record.id)
+      .select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload, review_notes, reviewed_by, reviewed_at")
+      .maybeSingle();
 
-    if (error) {
-      setReviewError("Não foi possível atualizar o registro. Tente novamente.");
+    if (error || !data) {
+      setReviewError("O status não foi alterado. Atualize a página e tente novamente.");
     } else {
       setRejectingRecord(null);
       setRejectionReason("");
-      onChanged?.();
+      onChanged?.(data as QualityRecord);
     }
     setUpdatingId(null);
   }

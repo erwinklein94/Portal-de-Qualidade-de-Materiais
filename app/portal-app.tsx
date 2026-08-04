@@ -766,7 +766,7 @@ function QualityHorizontalChart({ chart, expanded, progress }: { chart: QualityC
       <div className="horizontal-chart-rows">
         {chart.data.map((item, index) => {
           const width = maximum ? Math.max(item.value > 0 ? 1.5 : 0, Math.min(100, (item.value / maximum) * 100)) : 0;
-          return <div className="horizontal-chart-row" key={item.label}><span className="horizontal-chart-rank">{progress ? "" : `${index + 1}º`}</span><strong>{item.label}</strong><div className="horizontal-chart-track"><span style={{ width: `${width}%`, background: chart.color }} /></div><b>{formatChartValue(item.value, chart.unit)}</b></div>;
+          return <div className="horizontal-chart-row" key={item.label}><span className="horizontal-chart-rank">{progress ? "" : `${index + 1}º`}</span><strong title={item.label}>{item.label}</strong><div className="horizontal-chart-track"><span style={{ width: `${width}%`, background: chart.color }} /></div><b>{formatChartValue(item.value, chart.unit)}</b></div>;
         })}
       </div>
     </div>
@@ -783,21 +783,17 @@ function QualityTrendChart({ chart, expanded }: { chart: QualityChartConfig; exp
   const yAt = (value: number) => padding.top + plotHeight - (Math.max(0, Math.min(100, value)) / 100) * plotHeight;
   const points = chart.data.map((item, index) => `${xAt(index)},${yAt(item.value)}`).join(" ");
   const areaPoints = `${padding.left},${padding.top + plotHeight} ${points} ${padding.left + plotWidth},${padding.top + plotHeight}`;
-  const labelStep = Math.max(1, Math.ceil(chart.data.length / 7));
   const ticks = [0, 25, 50, 75, 100];
   return (
-    <div className={`quality-trend-chart ${expanded ? "quality-trend-chart--expanded" : ""}`}>
+    <div className={`quality-trend-chart ${chart.data.length > 12 ? "quality-trend-chart--dense" : ""} ${expanded ? "quality-trend-chart--expanded" : ""}`}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={`trend-title-${chart.id} trend-desc-${chart.id}`}>
         <title id={`trend-title-${chart.id}`}>{chart.title}</title>
         <desc id={`trend-desc-${chart.id}`}>{chart.data.map((item) => `${item.label}: ${formatChartValue(item.value, chart.unit)}`).join(", ")}</desc>
         {ticks.map((tick) => <g key={tick}><line className="trend-grid-line" x1={padding.left} x2={width - padding.right} y1={yAt(tick)} y2={yAt(tick)} /><text className="trend-axis-label" x={padding.left - 10} y={yAt(tick) + 4} textAnchor="end">{tick}%</text></g>)}
         <polygon className="trend-area" points={areaPoints} style={{ fill: chart.color }} />
         <polyline className="trend-line" points={points} style={{ stroke: chart.color }} />
-        {chart.data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="trend-point" cx={xAt(index)} cy={yAt(item.value)} r={expanded ? 5 : 4} style={{ fill: chart.color }}><title>{`${item.label}: ${formatChartValue(item.value, chart.unit)}`}</title></circle>{chart.data.length <= 12 && <text className="trend-point-value" x={xAt(index)} y={Math.max(12, yAt(item.value) - 10)} textAnchor="middle">{formatChartValue(item.value, chart.unit)}</text>}{(index % labelStep === 0 || index === chart.data.length - 1) && <text className="trend-x-label" x={xAt(index)} y={height - 15} textAnchor="middle">{item.label}</text>}</g>)}
+        {chart.data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="trend-point" cx={xAt(index)} cy={yAt(item.value)} r={expanded ? 5 : 4} style={{ fill: chart.color }}><title>{`${item.label}: ${formatChartValue(item.value, chart.unit)}`}</title></circle><text className="trend-point-value" x={xAt(index)} y={Math.max(12, Math.min(height - 8, yAt(item.value) + (index % 2 === 0 ? -10 : 18)))} textAnchor="middle">{formatChartValue(item.value, chart.unit)}</text></g>)}
       </svg>
-      <div className="trend-visible-values" aria-label="Valores exibidos no gráfico">
-        {chart.data.map((item) => <div key={item.label}><span>{item.label}</span><strong>{formatChartValue(item.value, chart.unit)}</strong></div>)}
-      </div>
     </div>
   );
 }

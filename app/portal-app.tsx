@@ -100,7 +100,9 @@ type QualityChartConfig = {
   title: string;
   subtitle: string;
   unit: "pieces" | "percent";
+  kind: "ranked-bar" | "trend" | "progress" | "donut";
   color: string;
+  secondaryColor?: string;
   data: QualityChartDatum[];
 };
 
@@ -691,13 +693,14 @@ function MaterialQualityDashboard({ records, suppliers }: { records: QualityReco
     });
 
     const charts: QualityChartConfig[] = [
-      { id: "inspected-supplier", title: "Peças inspecionadas por fornecedor", subtitle: "Volume total inspecionado pela qualidade do fornecedor", unit: "pieces", color: "#32A6E6", data: supplierData((item) => item.inspected) },
-      { id: "approval-week", title: "Taxa de aprovação por semana", subtitle: "Percentual aprovado sobre o volume inspecionado", unit: "percent", color: "#1E9F7F", data: weeklyApproval },
-      { id: "approval-month", title: "Taxa de aprovação por mês", subtitle: "Evolução mensal do percentual de aprovação", unit: "percent", color: "#7FE06C", data: monthlyApproval },
-      { id: "approval-supplier", title: "Taxa de aprovação por fornecedor", subtitle: "Comparativo de desempenho entre empresas", unit: "percent", color: "#003865", data: supplierData((item) => approvalRate(item.inspected, item.rejected)) },
-      { id: "rejected-supplier", title: "Peças reprovadas por fornecedor", subtitle: "Volume acumulado de reprovas no período", unit: "pieces", color: "#F78344", data: supplierData((item) => item.rejected) },
-      { id: "released-supplier", title: "Estoque liberado por fornecedor", subtitle: "Peças disponíveis e liberadas para transporte", unit: "pieces", color: "#9F4BB9", data: supplierData((item) => item.released) },
-      { id: "inspection-coverage", title: "Cobertura de inspeção por fornecedor", subtitle: "Percentual do pedido que já passou por inspeção", unit: "percent", color: "#FBD300", data: supplierData((item) => item.total > 0 ? Math.min(100, (item.inspected / item.total) * 100) : 0) },
+      { id: "inspected-supplier", title: "Peças inspecionadas por fornecedor", subtitle: "Ranking do volume inspecionado pela qualidade do fornecedor", unit: "pieces", kind: "ranked-bar", color: "#32A6E6", data: supplierData((item) => item.inspected) },
+      { id: "approval-week", title: "Taxa de aprovação por semana", subtitle: "Tendência semanal do percentual aprovado", unit: "percent", kind: "trend", color: "#1E9F7F", data: weeklyApproval },
+      { id: "approval-month", title: "Taxa de aprovação por mês", subtitle: "Evolução mensal do percentual de aprovação", unit: "percent", kind: "trend", color: "#7FE06C", data: monthlyApproval },
+      { id: "inspection-outcome", title: "Resultado das inspeções", subtitle: "Composição do volume inspecionado entre peças aprovadas e reprovadas", unit: "pieces", kind: "donut", color: "#1E9F7F", secondaryColor: "#F78344", data: [{ label: "Aprovadas", value: Math.max(0, overall.inspected - overall.rejected) }, { label: "Reprovadas", value: overall.rejected }] },
+      { id: "approval-supplier", title: "Taxa de aprovação por fornecedor", subtitle: "Comparativo percentual em escala comum de 0 a 100%", unit: "percent", kind: "progress", color: "#003865", data: supplierData((item) => approvalRate(item.inspected, item.rejected)) },
+      { id: "rejected-supplier", title: "Peças reprovadas por fornecedor", subtitle: "Ranking do volume acumulado de reprovas", unit: "pieces", kind: "ranked-bar", color: "#F78344", data: supplierData((item) => item.rejected) },
+      { id: "released-supplier", title: "Estoque liberado por fornecedor", subtitle: "Comparativo de peças disponíveis para transporte", unit: "pieces", kind: "ranked-bar", color: "#9F4BB9", data: supplierData((item) => item.released) },
+      { id: "inspection-coverage", title: "Cobertura de inspeção por fornecedor", subtitle: "Percentual do pedido que já passou por inspeção", unit: "percent", kind: "progress", color: "#FBD300", data: supplierData((item) => item.total > 0 ? Math.min(100, (item.inspected / item.total) * 100) : 0) },
     ];
 
     return { overall, charts };
@@ -736,26 +739,76 @@ function QualityChartCard({ chart, onOpen }: { chart: QualityChartConfig; onOpen
   return (
     <article className="chart-card quality-chart-card" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(); }} aria-label={`Ampliar gráfico: ${chart.title}`}>
       <div className="card-heading"><div><span>{chart.title}</span><p>{chart.subtitle}</p></div><Maximize2 className="chart-expand-icon" size={17} /></div>
-      <QualityBarChart chart={chart} />
+      <QualityChartView chart={chart} />
       <span className="chart-open-hint">Clique para ampliar</span>
     </article>
   );
 }
 
-function QualityBarChart({ chart, expanded = false }: { chart: QualityChartConfig; expanded?: boolean }) {
-  if (!chart.data.length) return <EmptyState compact />;
-  const maximum = chart.unit === "percent" ? 100 : Math.max(...chart.data.map((item) => item.value), 1);
-  const formatValue = (value: number) => chart.unit === "percent"
+function formatChartValue(value: number, unit: QualityChartConfig["unit"]) {
+  return unit === "percent"
     ? `${value.toFixed(1)}%`
     : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+}
+
+function QualityChartView({ chart, expanded = false }: { chart: QualityChartConfig; expanded?: boolean }) {
+  if (!chart.data.length) return <EmptyState compact />;
+  if (chart.kind === "trend") return <QualityTrendChart chart={chart} expanded={expanded} />;
+  if (chart.kind === "donut") return <QualityDonutChart chart={chart} expanded={expanded} />;
+  return <QualityHorizontalChart chart={chart} expanded={expanded} progress={chart.kind === "progress"} />;
+}
+
+function QualityHorizontalChart({ chart, expanded, progress }: { chart: QualityChartConfig; expanded: boolean; progress: boolean }) {
+  const maximum = progress || chart.unit === "percent" ? 100 : Math.max(...chart.data.map((item) => item.value), 1);
   return (
-    <div className={`quality-bar-chart ${expanded ? "quality-bar-chart--expanded" : ""}`}>
-      <div className="quality-chart-scale"><span>{formatValue(maximum)}</span><span>{formatValue(maximum / 2)}</span><span>0</span></div>
-      <div className="quality-chart-plot">
-        {chart.data.map((item) => {
-          const height = maximum ? Math.max(item.value > 0 ? 2 : 0, Math.min(100, (item.value / maximum) * 100)) : 0;
-          return <div className="quality-bar-item" key={item.label} title={`${item.label}: ${formatValue(item.value)}`}><strong>{formatValue(item.value)}</strong><div className="quality-bar-track"><span style={{ height: `${height}%`, background: chart.color }} /></div><small>{item.label}</small></div>;
+    <div className={`quality-horizontal-chart ${progress ? "quality-horizontal-chart--progress" : ""} ${expanded ? "quality-horizontal-chart--expanded" : ""}`} role="img" aria-label={`${chart.title}. ${chart.data.map((item) => `${item.label}: ${formatChartValue(item.value, chart.unit)}`).join(", ")}`}>
+      <div className="horizontal-chart-scale"><span>0</span><span>{formatChartValue(maximum / 2, chart.unit)}</span><span>{formatChartValue(maximum, chart.unit)}</span></div>
+      <div className="horizontal-chart-rows">
+        {chart.data.map((item, index) => {
+          const width = maximum ? Math.max(item.value > 0 ? 1.5 : 0, Math.min(100, (item.value / maximum) * 100)) : 0;
+          return <div className="horizontal-chart-row" key={item.label}><span className="horizontal-chart-rank">{progress ? "" : `${index + 1}º`}</span><strong title={item.label}>{item.label}</strong><div className="horizontal-chart-track"><span style={{ width: `${width}%`, background: chart.color }} /></div><b>{formatChartValue(item.value, chart.unit)}</b></div>;
         })}
+      </div>
+    </div>
+  );
+}
+
+function QualityTrendChart({ chart, expanded }: { chart: QualityChartConfig; expanded: boolean }) {
+  const width = 680;
+  const height = 270;
+  const padding = { top: 20, right: 20, bottom: 45, left: 52 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const xAt = (index: number) => chart.data.length === 1 ? padding.left + plotWidth / 2 : padding.left + (index / (chart.data.length - 1)) * plotWidth;
+  const yAt = (value: number) => padding.top + plotHeight - (Math.max(0, Math.min(100, value)) / 100) * plotHeight;
+  const points = chart.data.map((item, index) => `${xAt(index)},${yAt(item.value)}`).join(" ");
+  const areaPoints = `${padding.left},${padding.top + plotHeight} ${points} ${padding.left + plotWidth},${padding.top + plotHeight}`;
+  const labelStep = Math.max(1, Math.ceil(chart.data.length / 7));
+  const ticks = [0, 25, 50, 75, 100];
+  return (
+    <div className={`quality-trend-chart ${expanded ? "quality-trend-chart--expanded" : ""}`}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={`trend-title-${chart.id} trend-desc-${chart.id}`}>
+        <title id={`trend-title-${chart.id}`}>{chart.title}</title>
+        <desc id={`trend-desc-${chart.id}`}>{chart.data.map((item) => `${item.label}: ${formatChartValue(item.value, chart.unit)}`).join(", ")}</desc>
+        {ticks.map((tick) => <g key={tick}><line className="trend-grid-line" x1={padding.left} x2={width - padding.right} y1={yAt(tick)} y2={yAt(tick)} /><text className="trend-axis-label" x={padding.left - 10} y={yAt(tick) + 4} textAnchor="end">{tick}%</text></g>)}
+        <polygon className="trend-area" points={areaPoints} style={{ fill: chart.color }} />
+        <polyline className="trend-line" points={points} style={{ stroke: chart.color }} />
+        {chart.data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="trend-point" cx={xAt(index)} cy={yAt(item.value)} r={expanded ? 5 : 4} style={{ fill: chart.color }}><title>{`${item.label}: ${formatChartValue(item.value, chart.unit)}`}</title></circle>{(index % labelStep === 0 || index === chart.data.length - 1) && <text className="trend-x-label" x={xAt(index)} y={height - 15} textAnchor="middle">{item.label}</text>}</g>)}
+      </svg>
+    </div>
+  );
+}
+
+function QualityDonutChart({ chart, expanded }: { chart: QualityChartConfig; expanded: boolean }) {
+  const total = chart.data.reduce((sum, item) => sum + item.value, 0);
+  if (total <= 0) return <EmptyState compact />;
+  const primaryPercent = (chart.data[0].value / total) * 100;
+  const secondaryColor = chart.secondaryColor ?? "#F78344";
+  return (
+    <div className={`quality-donut-layout ${expanded ? "quality-donut-layout--expanded" : ""}`} role="img" aria-label={`${chart.title}. ${chart.data.map((item) => `${item.label}: ${formatChartValue(item.value, chart.unit)}`).join(", ")}`}>
+      <div className="quality-donut" style={{ background: `conic-gradient(${chart.color} 0 ${primaryPercent}%, ${secondaryColor} ${primaryPercent}% 100%)` }}><div><strong>{primaryPercent.toFixed(1)}%</strong><span>aprovação</span></div></div>
+      <div className="quality-donut-legend">
+        {chart.data.map((item, index) => <div key={item.label}><i style={{ background: index === 0 ? chart.color : secondaryColor }} /><span>{item.label}</span><strong>{formatChartValue(item.value, chart.unit)}</strong><small>{((item.value / total) * 100).toFixed(1)}% do inspecionado</small></div>)}
       </div>
     </div>
   );
@@ -766,7 +819,7 @@ function QualityChartModal({ chart, onClose }: { chart: QualityChartConfig; onCl
     <div className="chart-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="chart-modal" role="dialog" aria-modal="true" aria-labelledby={`chart-modal-${chart.id}`}>
         <div className="chart-modal__heading"><div><p className="eyebrow">VISÃO AMPLIADA</p><h2 id={`chart-modal-${chart.id}`}>{chart.title}</h2><p>{chart.subtitle}</p></div><button onClick={onClose} aria-label="Fechar gráfico ampliado"><X size={20} /></button></div>
-        <QualityBarChart chart={chart} expanded />
+        <QualityChartView chart={chart} expanded />
       </section>
     </div>
   );

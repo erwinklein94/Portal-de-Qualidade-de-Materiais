@@ -19,6 +19,8 @@ import {
   PackageCheck,
   Pencil,
   Plus,
+  CheckCircle2,
+  CircleDot,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -75,6 +77,9 @@ type QualityRecord = {
   area_id: string;
   updated_at: string;
   payload: Record<string, unknown>;
+  review_notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 };
 
 type MaterialQualityPayload = {
@@ -108,7 +113,7 @@ const roleLabels: Record<TeamRole, string> = {
 
 const statusLabels: Record<string, string> = {
   draft: "Rascunho",
-  submitted: "Enviado",
+  submitted: "Aguardando análise",
   under_review: "Em análise",
   approved: "Aprovado",
   rejected: "Reprovado",
@@ -273,12 +278,14 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     isTeam && (profile.team_role === "editor" || profile.team_role === "coordinator");
   const canEditAccounts =
     isTeam && ["editor", "analyst", "coordinator"].includes(profile.team_role ?? "");
+  const canReviewRecords =
+    isTeam && ["editor", "analyst", "coordinator"].includes(profile.team_role ?? "");
 
   const loadData = useCallback(async () => {
     setDataLoading(true);
     let areasQuery = supabase.from("material_areas").select("*").order("sort_order");
     let suppliersQuery = supabase.from("suppliers").select("id, trade_name, legal_name, area_id, status").order("trade_name");
-    let recordsQuery = supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload").order("updated_at", { ascending: false }).limit(1000);
+    let recordsQuery = supabase.from("quality_records").select("id, reference_date, reference_week, status, supplier_id, area_id, updated_at, payload, review_notes, reviewed_by, reviewed_at").order("updated_at", { ascending: false }).limit(1000);
 
     if (!isTeam) {
       if (profile.area_id) {
@@ -493,9 +500,11 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               weekFilter={weekFilter}
               setWeekFilter={setWeekFilter}
               isTeam={isTeam}
+              canReview={canReviewRecords}
               currentUserId={session.user.id}
               currentSupplierId={profile.supplier_id}
               onRecordCreated={() => { void loadData(); notify("Registro enviado para a equipe Rumo com sucesso."); }}
+              onRecordReviewed={() => { void loadData(); notify("Status do registro atualizado com sucesso."); }}
             />
           )}
           {activeView === "accounts" && isTeam && (
@@ -565,10 +574,10 @@ function Metric({ label, value, detail, color, icon }: { label: string; value: s
   return <article className={`metric metric--${color}`}><div className="metric-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong><small>{detail}</small></div></article>;
 }
 
-function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter, setSupplierFilter, dateFilter, setDateFilter, weekFilter, setWeekFilter, isTeam, currentUserId, currentSupplierId, onRecordCreated }: {
+function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter, setSupplierFilter, dateFilter, setDateFilter, weekFilter, setWeekFilter, isTeam, canReview, currentUserId, currentSupplierId, onRecordCreated, onRecordReviewed }: {
   area: MaterialArea; mode: "dashboard" | "records"; setMode: (mode: "dashboard" | "records") => void; suppliers: Supplier[]; records: QualityRecord[];
-  supplierFilter: string; setSupplierFilter: (value: string) => void; dateFilter: string; setDateFilter: (value: string) => void; weekFilter: string; setWeekFilter: (value: string) => void; isTeam: boolean;
-  currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void;
+  supplierFilter: string; setSupplierFilter: (value: string) => void; dateFilter: string; setDateFilter: (value: string) => void; weekFilter: string; setWeekFilter: (value: string) => void; isTeam: boolean; canReview: boolean;
+  currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void; onRecordReviewed: () => void;
 }) {
   const openNewRecord = () => {
     setMode("records");
@@ -592,13 +601,13 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>
       </section>
       {mode === "dashboard" ? (
-        <MaterialQualityDashboard records={records} suppliers={suppliers} />
+        <MaterialQualityDashboard records={records.filter((record) => record.status === "approved")} suppliers={suppliers} />
       ) : (
         <>
           {!isTeam && currentSupplierId && <MaterialQualityRecordForm area={area} supplierId={currentSupplierId} currentUserId={currentUserId} onCreated={onRecordCreated} />}
           <section className="records-card">
             <div className="records-head"><div><h2>Registros de qualidade</h2><p>{records.length} registro(s) no período selecionado</p></div>{!isTeam && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}</div>
-            <MaterialQualityRecordsTable records={records} suppliers={suppliers} />
+            <MaterialQualityRecordsTable records={records} suppliers={suppliers} isTeam={isTeam} canReview={canReview} currentUserId={currentUserId} onChanged={onRecordReviewed} />
           </section>
         </>
       )}
@@ -849,10 +858,106 @@ function MaterialQualityRecordForm({ area, supplierId, currentUserId, onCreated 
   );
 }
 
-function MaterialQualityRecordsTable({ records, suppliers, compact = false }: { records: QualityRecord[]; suppliers: Supplier[]; compact?: boolean }) {
+function MaterialQualityRecordsTable({ records, suppliers, compact = false, isTeam = false, canReview = false, currentUserId, onChanged }: {
+  records: QualityRecord[];
+  suppliers: Supplier[];
+  compact?: boolean;
+  isTeam?: boolean;
+  canReview?: boolean;
+  currentUserId?: string;
+  onChanged?: () => void;
+}) {
+  const [rejectingRecord, setRejectingRecord] = useState<QualityRecord | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState("");
+
   if (!records.length) return <EmptyState compact={compact} />;
+
   const formatVolume = (value: unknown) => typeof value === "number" ? new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value) : "—";
-  return <div className="table-wrap"><table className="material-quality-table"><thead><tr><th>Fornecedor</th><th>Pedido</th><th>Data</th><th>Semana</th><th>Volume total</th><th>Volume inspecionado</th><th>Reprovas</th><th>Estoque liberado</th><th>Status</th></tr></thead><tbody>{records.slice(0, compact ? 5 : 100).map((record) => <tr key={record.id}><td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td><td>{String(record.payload?.order_number ?? "—")}</td><td>{new Intl.DateTimeFormat("pt-BR").format(new Date(`${record.reference_date}T12:00:00`))}</td><td>Semana {record.reference_week}</td><td>{formatVolume(record.payload?.total_order_volume)}</td><td>{formatVolume(record.payload?.inspected_volume)}</td><td>{formatVolume(record.payload?.rejected_volume)}</td><td>{formatVolume(record.payload?.released_stock_volume)}</td><td><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span></td></tr>)}</tbody></table></div>;
+  const formatReviewDate = (value: string | null) => value
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value))
+    : "";
+
+  async function changeStatus(record: QualityRecord, status: "under_review" | "approved" | "rejected", reason = "") {
+    if (!currentUserId || !canReview) return;
+    if (status === "rejected" && !reason.trim()) {
+      setReviewError("Informe a justificativa da reprovação.");
+      return;
+    }
+
+    setUpdatingId(record.id);
+    setReviewError("");
+    const completed = status === "approved" || status === "rejected";
+    const { error } = await supabase
+      .from("quality_records")
+      .update({
+        status,
+        review_notes: status === "rejected" ? reason.trim() : null,
+        reviewed_by: currentUserId,
+        reviewed_at: completed ? new Date().toISOString() : null,
+      })
+      .eq("id", record.id);
+
+    if (error) {
+      setReviewError("Não foi possível atualizar o registro. Tente novamente.");
+    } else {
+      setRejectingRecord(null);
+      setRejectionReason("");
+      onChanged?.();
+    }
+    setUpdatingId(null);
+  }
+
+  return (
+    <>
+      <div className="table-wrap">
+        <table className={`material-quality-table ${isTeam && !compact ? "material-quality-table--review" : ""}`}>
+          <thead><tr><th>Fornecedor</th><th>Pedido</th><th>Data</th><th>Semana</th><th>Volume total</th><th>Volume inspecionado</th><th>Reprovas</th><th>Estoque liberado</th><th>Status</th><th>Retorno da Rumo</th>{isTeam && !compact && <th>Ações</th>}</tr></thead>
+          <tbody>
+            {records.slice(0, compact ? 5 : 100).map((record) => (
+              <tr key={record.id}>
+                <td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td>
+                <td>{String(record.payload?.order_number ?? "—")}</td>
+                <td>{new Intl.DateTimeFormat("pt-BR").format(new Date(`${record.reference_date}T12:00:00`))}</td>
+                <td>Semana {record.reference_week}</td>
+                <td>{formatVolume(record.payload?.total_order_volume)}</td>
+                <td>{formatVolume(record.payload?.inspected_volume)}</td>
+                <td>{formatVolume(record.payload?.rejected_volume)}</td>
+                <td>{formatVolume(record.payload?.released_stock_volume)}</td>
+                <td><span className={`record-status record-status--${record.status}`}>{statusLabels[record.status] ?? record.status}</span></td>
+                <td className="review-return">
+                  {record.status === "rejected" && record.review_notes ? <strong>{record.review_notes}</strong> : record.status === "approved" ? <span>Aprovado {formatReviewDate(record.reviewed_at)}</span> : record.status === "under_review" ? <span>Em avaliação pela equipe Rumo</span> : <span>Aguardando avaliação</span>}
+                </td>
+                {isTeam && !compact && (
+                  <td>
+                    {canReview ? (
+                      <div className="review-actions">
+                        <button className="review-action review-action--analysis" disabled={updatingId === record.id || record.status === "under_review"} onClick={() => void changeStatus(record, "under_review")}><CircleDot size={14} /> Em análise</button>
+                        <button className="review-action review-action--approve" disabled={updatingId === record.id || record.status === "approved"} onClick={() => void changeStatus(record, "approved")}><CheckCircle2 size={14} /> Aprovar</button>
+                        <button className="review-action review-action--reject" disabled={updatingId === record.id} onClick={() => { setReviewError(""); setRejectionReason(record.review_notes ?? ""); setRejectingRecord(record); }}><X size={14} /> Reprovar</button>
+                      </div>
+                    ) : <span className="review-readonly">Somente consulta</span>}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rejectingRecord && (
+        <div className="review-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setRejectingRecord(null); }}>
+          <section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="reject-record-title">
+            <div className="review-modal__heading"><div><p className="eyebrow">REPROVAR REGISTRO</p><h2 id="reject-record-title">Justificativa para o fornecedor</h2><p>O motivo ficará visível para a empresa responsável por este registro.</p></div><button onClick={() => setRejectingRecord(null)} aria-label="Fechar"><X size={20} /></button></div>
+            <label>Motivo da reprovação<textarea autoFocus required maxLength={1000} value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} placeholder="Descreva claramente o que precisa ser corrigido pelo fornecedor." /></label>
+            {reviewError && <div className="form-error">{reviewError}</div>}
+            <div className="review-modal__actions"><button className="secondary-button" onClick={() => setRejectingRecord(null)}>Cancelar</button><button className="primary-button primary-button--compact review-confirm-reject" disabled={updatingId === rejectingRecord.id || !rejectionReason.trim()} onClick={() => void changeStatus(rejectingRecord, "rejected", rejectionReason)}>{updatingId === rejectingRecord.id ? "Salvando..." : "Confirmar reprovação"}</button></div>
+          </section>
+        </div>
+      )}
+      {reviewError && !rejectingRecord && <div className="form-error records-review-error">{reviewError}</div>}
+    </>
+  );
 }
 
 function EmptyState({ compact = false }: { compact?: boolean }) {

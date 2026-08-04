@@ -120,6 +120,55 @@ begin
 end;
 $$;
 
+create function private.enforce_quality_record_review_workflow()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  actor_is_team boolean := coalesce(private.is_team_member(), false);
+begin
+  if tg_op = 'INSERT' then
+    if not actor_is_team then
+      if new.status <> 'submitted' then
+        raise exception 'Novos registros de fornecedor devem ser enviados para análise.';
+      end if;
+      new.review_notes := null;
+      new.reviewed_by := null;
+      new.reviewed_at := null;
+    end if;
+    return new;
+  end if;
+
+  if not actor_is_team then
+    if new.status not in ('draft', 'submitted') then
+      raise exception 'Somente a equipe Rumo pode definir o status de revisão.';
+    end if;
+    if new.review_notes is distinct from old.review_notes
+      or new.reviewed_by is distinct from old.reviewed_by
+      or new.reviewed_at is distinct from old.reviewed_at then
+      raise exception 'Somente a equipe Rumo pode alterar os dados da revisão.';
+    end if;
+    return new;
+  end if;
+
+  if new.status = 'rejected' and nullif(btrim(new.review_notes), '') is null then
+    raise exception 'Informe a justificativa da reprovação.';
+  end if;
+
+  if new.status in ('under_review', 'approved', 'rejected') then
+    new.reviewed_by := auth.uid();
+    new.reviewed_at := case when new.status in ('approved', 'rejected') then now() else null end;
+    if new.status in ('under_review', 'approved') then
+      new.review_notes := null;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
 create trigger suppliers_set_updated_at before update on public.suppliers
 for each row execute function private.set_updated_at();
 create trigger profiles_set_updated_at before update on public.profiles
@@ -128,6 +177,8 @@ create trigger quality_records_set_updated_at before update on public.quality_re
 for each row execute function private.set_updated_at();
 create trigger quality_records_validate_payload before insert or update on public.quality_records
 for each row execute function private.validate_quality_record_payload();
+create trigger quality_records_enforce_review_workflow before insert or update on public.quality_records
+for each row execute function private.enforce_quality_record_review_workflow();
 
 create function private.is_team_member()
 returns boolean
@@ -172,6 +223,7 @@ revoke all on function private.is_team_member() from public;
 revoke all on function private.has_team_role(text[]) from public;
 revoke all on function private.current_supplier_id() from public;
 revoke all on function private.current_area_id() from public;
+revoke all on function private.enforce_quality_record_review_workflow() from public, anon, authenticated;
 grant usage on schema private to authenticated;
 grant execute on function private.is_team_member() to authenticated;
 grant execute on function private.has_team_role(text[]) to authenticated;

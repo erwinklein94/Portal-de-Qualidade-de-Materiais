@@ -766,7 +766,7 @@ function QualityHorizontalChart({ chart, expanded, progress }: { chart: QualityC
       <div className="horizontal-chart-rows">
         {chart.data.map((item, index) => {
           const width = maximum ? Math.max(item.value > 0 ? 1.5 : 0, Math.min(100, (item.value / maximum) * 100)) : 0;
-          return <div className="horizontal-chart-row" key={item.label}><span className="horizontal-chart-rank">{progress ? "" : `${index + 1}º`}</span><strong title={item.label}>{item.label}</strong><div className="horizontal-chart-track"><span style={{ width: `${width}%`, background: chart.color }} /></div><b>{formatChartValue(item.value, chart.unit)}</b></div>;
+          return <div className="horizontal-chart-row" key={item.label}><span className="horizontal-chart-rank">{progress ? "" : `${index + 1}º`}</span><strong>{item.label}</strong><div className="horizontal-chart-track"><span style={{ width: `${width}%`, background: chart.color }} /></div><b>{formatChartValue(item.value, chart.unit)}</b></div>;
         })}
       </div>
     </div>
@@ -793,8 +793,11 @@ function QualityTrendChart({ chart, expanded }: { chart: QualityChartConfig; exp
         {ticks.map((tick) => <g key={tick}><line className="trend-grid-line" x1={padding.left} x2={width - padding.right} y1={yAt(tick)} y2={yAt(tick)} /><text className="trend-axis-label" x={padding.left - 10} y={yAt(tick) + 4} textAnchor="end">{tick}%</text></g>)}
         <polygon className="trend-area" points={areaPoints} style={{ fill: chart.color }} />
         <polyline className="trend-line" points={points} style={{ stroke: chart.color }} />
-        {chart.data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="trend-point" cx={xAt(index)} cy={yAt(item.value)} r={expanded ? 5 : 4} style={{ fill: chart.color }}><title>{`${item.label}: ${formatChartValue(item.value, chart.unit)}`}</title></circle>{(index % labelStep === 0 || index === chart.data.length - 1) && <text className="trend-x-label" x={xAt(index)} y={height - 15} textAnchor="middle">{item.label}</text>}</g>)}
+        {chart.data.map((item, index) => <g key={`${item.label}-${index}`}><circle className="trend-point" cx={xAt(index)} cy={yAt(item.value)} r={expanded ? 5 : 4} style={{ fill: chart.color }}><title>{`${item.label}: ${formatChartValue(item.value, chart.unit)}`}</title></circle>{chart.data.length <= 12 && <text className="trend-point-value" x={xAt(index)} y={Math.max(12, yAt(item.value) - 10)} textAnchor="middle">{formatChartValue(item.value, chart.unit)}</text>}{(index % labelStep === 0 || index === chart.data.length - 1) && <text className="trend-x-label" x={xAt(index)} y={height - 15} textAnchor="middle">{item.label}</text>}</g>)}
       </svg>
+      <div className="trend-visible-values" aria-label="Valores exibidos no gráfico">
+        {chart.data.map((item) => <div key={item.label}><span>{item.label}</span><strong>{formatChartValue(item.value, chart.unit)}</strong></div>)}
+      </div>
     </div>
   );
 }

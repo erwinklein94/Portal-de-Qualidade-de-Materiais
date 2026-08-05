@@ -326,6 +326,14 @@ button { cursor: pointer; }
 .concrete-detail-grid > div { display: grid; gap: 5px; min-height: 74px; padding: 13px; background: white; }
 .concrete-detail-grid span { color: var(--muted); font-size: 9px; line-height: 1.35; }
 .concrete-detail-grid strong { color: var(--text); font-size: 11px; line-height: 1.35; }
+.subcomponent-certificate-form { border-top-color: #9f4bb9; }
+.subcomponent-certificate-grid textarea { width: 100%; min-height: 105px; padding: 13px 15px; resize: vertical; color: var(--text); border: 1px solid var(--line); border-radius: 7px; outline: none; background: white; font: inherit; line-height: 1.5; }
+.subcomponent-certificate-grid textarea:focus { border-color: var(--rumo-cyan); box-shadow: 0 0 0 3px rgba(50,166,230,.13); }
+.subcomponent-certificate-history { margin-bottom: 22px; }
+.subcomponent-certificate-table { min-width: 780px; }
+.subcomponent-certificate-table th:last-child,
+.subcomponent-certificate-table td:last-child { width: 145px; }
+.certificate-lots { max-width: 420px; white-space: pre-line; line-height: 1.5; }
 .material-quality-table { min-width: 1180px; }
 .material-quality-table--review { min-width: 1540px; }
 .material-quality-table td:not(:first-child), .material-quality-table th:not(:first-child) { white-space: nowrap; }
@@ -494,6 +502,7 @@ td strong { color: var(--rumo-blue); }
 .theme-dark .form-grid select,
 .theme-dark .concrete-detail-card,
 .theme-dark .concrete-detail-grid > div,
+.theme-dark .subcomponent-certificate-grid textarea,
 .theme-dark .filter-bar input,
 .theme-dark .filter-bar select { color: #f2f5f6; border-color: var(--line); background: #103650; }
 .theme-dark .review-action { background: #103650; }

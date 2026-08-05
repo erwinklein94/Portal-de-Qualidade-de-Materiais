@@ -623,11 +623,12 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
     window.setTimeout(() => document.getElementById("material-record-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
   const isConcrete = area.code === "concrete_sleeper";
+  const isSubcomponents = area.code === "subcomponents";
   return (
     <>
       <section className="area-hero" style={{ "--area-accent": area.accent_color } as React.CSSProperties}>
         <div><p className="eyebrow">ÁREA DE MATERIAL</p><h1>{area.name}</h1><p>{area.description}</p></div>
-        {!isTeam && !isConcrete && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}
+        {!isTeam && !isConcrete && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> {isSubcomponents ? "Novo certificado" : "Novo registro"}</button>}
       </section>
       <div className="view-tabs">
         <button className={mode === "dashboard" ? "active" : ""} onClick={() => setMode("dashboard")}><BarChart3 size={17} /> Dashboard</button>
@@ -652,6 +653,16 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         <ConcreteSleeperWorkspace
           area={area}
           mode={isTeam ? "records" : mode}
+          records={records}
+          suppliers={suppliers}
+          isTeam={isTeam}
+          supplierId={currentSupplierId}
+          currentUserId={currentUserId}
+          onCreated={onRecordCreated}
+        />
+      ) : isSubcomponents ? (
+        <SubcomponentCertificatesWorkspace
+          area={area}
           records={records}
           suppliers={suppliers}
           isTeam={isTeam}
@@ -1067,6 +1078,137 @@ function ConcreteReleaseHistory({ records, suppliers, showSupplier = false }: { 
 
 function ConcreteDataBookHistory({ records, suppliers, showSupplier = false }: { records: QualityRecord[]; suppliers: Supplier[]; showSupplier?: boolean }) {
   return <section className="records-card concrete-record-section"><div className="records-head"><div><p className="eyebrow">DATA BOOK</p><h2>Documentos entregues</h2><p>{records.length} Data Book(s) recebido(s)</p></div></div>{records.length ? <div className="table-wrap"><table className="concrete-record-table"><thead><tr>{showSupplier && <th>Fornecedor</th>}<th>Lote</th><th>Projeto</th><th>Data de produção</th><th>Data de entrega</th><th>Documento</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{showSupplier && <td><strong>{suppliers.find((item) => item.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td>}<td><strong>{String(record.payload?.lot ?? "—")}</strong></td><td>{String(record.payload?.project ?? "—")}</td><td>{formatPortalDate(record.payload?.production_date)}</td><td>{typeof record.payload?.delivered_at === "string" ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(record.payload.delivered_at)) : "—"}</td><td><ReportAccess record={record} label="Abrir Data Book" /></td></tr>)}</tbody></table></div> : <EmptyState compact />}</section>;
+}
+
+function SubcomponentCertificateDownload({ record }: { record: QualityRecord }) {
+  const [downloading, setDownloading] = useState(false);
+  const path = typeof record.payload?.certificate_path === "string" ? record.payload.certificate_path : "";
+  const filename = typeof record.payload?.certificate_filename === "string"
+    ? record.payload.certificate_filename
+    : `certificado-${String(record.payload?.certificate_number ?? record.id)}.pdf`;
+  if (!path) return <span>—</span>;
+
+  async function downloadCertificate() {
+    setDownloading(true);
+    const { data, error } = await supabase.storage.from("subcomponent-certificates").download(path);
+    if (!error && data) {
+      const url = URL.createObjectURL(data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    setDownloading(false);
+  }
+
+  return <button type="button" className="report-link" disabled={downloading} onClick={() => void downloadCertificate()}><FileText size={14} /> {downloading ? "Baixando..." : "Baixar PDF"}</button>;
+}
+
+async function insertSubcomponentCertificate({ area, supplierId, currentUserId, referenceDate, certificateNumber, lots, certificateFile }: {
+  area: MaterialArea;
+  supplierId: string;
+  currentUserId: string;
+  referenceDate: string;
+  certificateNumber: string;
+  lots: string;
+  certificateFile: File;
+}) {
+  if (!certificateFile.size) throw new Error("Selecione o certificado em PDF.");
+  if (certificateFile.type !== "application/pdf" && !certificateFile.name.toLowerCase().endsWith(".pdf")) throw new Error("Selecione um arquivo PDF válido.");
+  if (certificateFile.size > 20 * 1024 * 1024) throw new Error("O PDF deve ter no máximo 20 MB.");
+
+  const safeName = certificateFile.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const certificatePath = `${supplierId}/${crypto.randomUUID()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage
+    .from("subcomponent-certificates")
+    .upload(certificatePath, certificateFile, { contentType: "application/pdf", upsert: false });
+  if (uploadError) throw new Error("Não foi possível enviar o certificado em PDF.");
+
+  const { error } = await supabase.from("quality_records").insert({
+    supplier_id: supplierId,
+    area_id: area.id,
+    reference_date: referenceDate,
+    reference_week: getIsoWeek(referenceDate),
+    status: "submitted",
+    payload: {
+      record_type: "subcomponent_certificate",
+      certificate_number: certificateNumber,
+      lots,
+      certificate_path: certificatePath,
+      certificate_filename: certificateFile.name,
+    },
+    created_by: currentUserId,
+    submitted_at: new Date().toISOString(),
+  });
+  if (error) {
+    await supabase.storage.from("subcomponent-certificates").remove([certificatePath]);
+    throw new Error("Não foi possível registrar o certificado. Confira os dados e tente novamente.");
+  }
+}
+
+function SubcomponentCertificateForm({ area, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; supplierId: string; currentUserId: string; onCreated: () => void;
+}) {
+  const [referenceDate, setReferenceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setSubmitting(true);
+    setMessage("");
+    setHasError(false);
+    try {
+      await insertSubcomponentCertificate({
+        area,
+        supplierId,
+        currentUserId,
+        referenceDate,
+        certificateNumber: String(data.get("certificate_number") ?? "").trim(),
+        lots: String(data.get("lots") ?? "").trim(),
+        certificateFile: data.get("certificate_file") as File,
+      });
+      form.reset();
+      setReferenceDate(new Date().toISOString().slice(0, 10));
+      setMessage("Certificado enviado com sucesso para a equipe Rumo.");
+      onCreated();
+    } catch (error) {
+      setHasError(true);
+      setMessage(error instanceof Error ? error.message : "Não foi possível enviar o certificado.");
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <form id="material-record-form" className="material-record-form subcomponent-certificate-form" onSubmit={submit}>
+      <div className="material-record-form__heading"><div><p className="eyebrow">NOVO CERTIFICADO</p><h2>Inspeção de qualidade</h2><p>Envie um certificado por registro, identificando todos os lotes contemplados.</p></div><div className="account-icon"><FileText /></div></div>
+      <div className="form-grid subcomponent-certificate-grid">
+        <label>Data do certificado<input required type="date" value={referenceDate} onChange={(event) => setReferenceDate(event.target.value)} /></label>
+        <label>Número do certificado<input required name="certificate_number" maxLength={120} placeholder="Ex.: CERT-2026-0042" /></label>
+        <label className="full-width">Lotes presentes neste certificado<textarea required name="lots" maxLength={2000} placeholder="Informe um lote por linha ou separe-os por vírgula." /></label>
+        <label className="file-input-label full-width">Certificado em PDF<input required name="certificate_file" type="file" accept="application/pdf,.pdf" /><span><Upload size={16} /> Selecionar PDF de até 20 MB</span></label>
+      </div>
+      {message && <div className={hasError ? "form-error" : "form-feedback"}>{message}</div>}
+      <div className="material-record-form__actions"><span>Semana calculada automaticamente: <strong>{getIsoWeek(referenceDate)}</strong></span><button className="primary-button primary-button--compact" disabled={submitting} type="submit"><FileCheck2 size={18} />{submitting ? "Enviando..." : "Enviar certificado"}</button></div>
+    </form>
+  );
+}
+
+function SubcomponentCertificateHistory({ records, suppliers, showSupplier }: { records: QualityRecord[]; suppliers: Supplier[]; showSupplier: boolean }) {
+  return <section className="records-card subcomponent-certificate-history"><div className="records-head"><div><p className="eyebrow">CERTIFICADOS RECEBIDOS</p><h2>Inspeções de Subcomponentes</h2><p>{records.length} certificado(s) registrado(s)</p></div></div>{records.length ? <div className="table-wrap"><table className="subcomponent-certificate-table"><thead><tr>{showSupplier && <th>Fornecedor</th>}<th>Data</th><th>Número do certificado</th><th>Lotes presentes</th><th>Certificado</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{showSupplier && <td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td>}<td>{formatPortalDate(record.reference_date)}</td><td><strong>{String(record.payload?.certificate_number ?? "—")}</strong></td><td className="certificate-lots">{String(record.payload?.lots ?? "—")}</td><td><SubcomponentCertificateDownload record={record} /></td></tr>)}</tbody></table></div> : <EmptyState compact />}</section>;
+}
+
+function SubcomponentCertificatesWorkspace({ area, records, suppliers, isTeam, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; records: QualityRecord[]; suppliers: Supplier[]; isTeam: boolean; supplierId: string | null; currentUserId: string; onCreated: () => void;
+}) {
+  const certificates = records.filter((record) => record.payload?.record_type === "subcomponent_certificate");
+  return <>{!isTeam && supplierId && <SubcomponentCertificateForm area={area} supplierId={supplierId} currentUserId={currentUserId} onCreated={onCreated} />}<SubcomponentCertificateHistory records={certificates} suppliers={suppliers} showSupplier={isTeam} /></>;
 }
 
 function payloadNumber(record: QualityRecord, key: keyof Omit<MaterialQualityPayload, "order_number">) {

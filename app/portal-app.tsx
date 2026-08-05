@@ -10,6 +10,12 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileCheck2,
+  FileText,
+  FlaskConical,
+  Factory,
+  ExternalLink,
+  Upload,
+  Clock3,
   Gauge,
   LogOut,
   Maximize2,
@@ -39,6 +45,7 @@ type TeamRole = "editor" | "analyst" | "coordinator" | "viewer";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 type UserKind = "team" | "supplier";
 type ThemeMode = "light" | "dark";
+type AreaMode = "dashboard" | "records" | "production" | "release_tests" | "databooks";
 
 type Profile = {
   id: string;
@@ -89,6 +96,23 @@ type MaterialQualityPayload = {
   rejected_volume: number;
   released_stock_volume: number;
 };
+
+type ConcreteRecordType = "concrete_production" | "concrete_release_test" | "concrete_databook";
+
+const concreteProjects = [
+  "FERRO NORTE",
+  "MALHA CENTRAL",
+  "FMT",
+  "MALHA PAULISTA BITOLA LARGA",
+  "MALHA PAULISTA BITOLA MISTA",
+] as const;
+
+const concreteSleeperTypes = [
+  "Bitola Larga - Fast Clip",
+  "Bitola Larga - E-Clip",
+  "Bitola Mista - Fast Clip",
+  "Bitola Mista - E-Clip",
+] as const;
 
 type QualityChartDatum = {
   label: string;
@@ -261,7 +285,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
   const [menuOpen, setMenuOpen] = useState(true);
   const [activeView, setActiveView] = useState("overview");
   const [activeArea, setActiveArea] = useState<string | null>(profile.area_id);
-  const [areaMode, setAreaMode] = useState<"dashboard" | "records">("dashboard");
+  const [areaMode, setAreaMode] = useState<AreaMode>("dashboard");
   const [areas, setAreas] = useState<MaterialArea[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [records, setRecords] = useState<QualityRecord[]>([]);
@@ -340,7 +364,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
     return () => document.removeEventListener("fullscreenchange", syncFullscreen);
   }, []);
 
-  function selectArea(areaId: string, mode: "dashboard" | "records") {
+  function selectArea(areaId: string, mode: AreaMode) {
     setActiveArea(areaId);
     setAreaMode(mode);
     setActiveView("area");
@@ -426,7 +450,13 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               </button>
               <div className="area-subnav">
                 <button onClick={() => selectArea(area.id, "dashboard")}><BarChart3 size={15} /> Dashboard</button>
-                <button onClick={() => selectArea(area.id, "records")}><ClipboardCheck size={15} /> Registros</button>
+                {!isTeam && area.code === "concrete_sleeper" ? (
+                  <>
+                    <button onClick={() => selectArea(area.id, "production")}><Factory size={15} /> Produção</button>
+                    <button onClick={() => selectArea(area.id, "release_tests")}><FlaskConical size={15} /> Ensaios de liberação</button>
+                    <button onClick={() => selectArea(area.id, "databooks")}><FileText size={15} /> Data Book</button>
+                  </>
+                ) : <button onClick={() => selectArea(area.id, "records")}><ClipboardCheck size={15} /> Registros</button>}
               </div>
             </div>
           ))}
@@ -525,7 +555,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
               canCreate={canCreateAccounts}
               canEdit={canEditAccounts}
               onChanged={() => { void loadData(); notify("Contas atualizadas com sucesso."); }}
-              onExamplesActivated={() => { void loadData(); notify("Exemplos de todas as áreas ativados."); }}
+              onExamplesActivated={() => { void loadData(); notify("Exemplos das demais áreas ativados."); }}
             />
           )}
         </main>
@@ -539,7 +569,7 @@ function PortalShell({ session, profile }: { session: Session; profile: Profile 
 
 function Overview({ areas, records, suppliers, approved, pending, loading, onArea }: {
   areas: MaterialArea[]; records: QualityRecord[]; suppliers: Supplier[]; approved: number; pending: number; loading: boolean;
-  onArea: (areaId: string, mode: "dashboard" | "records") => void;
+  onArea: (areaId: string, mode: AreaMode) => void;
 }) {
   const compliance = records.length ? Math.round((approved / records.length) * 100) : 0;
   return (
@@ -584,33 +614,51 @@ function Metric({ label, value, detail, color, icon }: { label: string; value: s
 }
 
 function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter, setSupplierFilter, dateFilter, setDateFilter, weekFilter, setWeekFilter, isTeam, canReview, currentUserId, currentSupplierId, onRecordCreated, onRecordReviewed }: {
-  area: MaterialArea; mode: "dashboard" | "records"; setMode: (mode: "dashboard" | "records") => void; suppliers: Supplier[]; records: QualityRecord[];
+  area: MaterialArea; mode: AreaMode; setMode: (mode: AreaMode) => void; suppliers: Supplier[]; records: QualityRecord[];
   supplierFilter: string; setSupplierFilter: (value: string) => void; dateFilter: string; setDateFilter: (value: string) => void; weekFilter: string; setWeekFilter: (value: string) => void; isTeam: boolean; canReview: boolean;
   currentUserId: string; currentSupplierId: string | null; onRecordCreated: () => void; onRecordReviewed: (record: QualityRecord) => void;
 }) {
   const openNewRecord = () => {
-    setMode("records");
+    setMode(area.code === "concrete_sleeper" && !isTeam ? "production" : "records");
     window.setTimeout(() => document.getElementById("material-record-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
+  const isConcrete = area.code === "concrete_sleeper";
   return (
     <>
       <section className="area-hero" style={{ "--area-accent": area.accent_color } as React.CSSProperties}>
         <div><p className="eyebrow">ÁREA DE MATERIAL</p><h1>{area.name}</h1><p>{area.description}</p></div>
-        {!isTeam && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}
+        {!isTeam && !isConcrete && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> Novo registro</button>}
       </section>
       <div className="view-tabs">
         <button className={mode === "dashboard" ? "active" : ""} onClick={() => setMode("dashboard")}><BarChart3 size={17} /> Dashboard</button>
-        <button className={mode === "records" ? "active" : ""} onClick={() => setMode("records")}><ClipboardCheck size={17} /> Registros</button>
+        {isConcrete && !isTeam ? (
+          <>
+            <button className={mode === "production" ? "active" : ""} onClick={() => setMode("production")}><Factory size={17} /> Produção</button>
+            <button className={mode === "release_tests" ? "active" : ""} onClick={() => setMode("release_tests")}><FlaskConical size={17} /> Ensaios</button>
+            <button className={mode === "databooks" ? "active" : ""} onClick={() => setMode("databooks")}><FileText size={17} /> Data Book</button>
+          </>
+        ) : <button className={mode === "records" ? "active" : ""} onClick={() => setMode("records")}><ClipboardCheck size={17} /> Registros</button>}
       </div>
-      <section className="filter-bar">
+      {(mode === "dashboard" || mode === "records") && <section className="filter-bar">
         <div className="filter-title"><SlidersHorizontal size={18} /><span>Filtros</span></div>
         {isTeam && <label>Fornecedor<select value={supplierFilter} onChange={(event) => setSupplierFilter(event.target.value)}><option value="">Todos os fornecedores</option>{suppliers.map((supplier) => <option value={supplier.id} key={supplier.id}>{supplier.trade_name}</option>)}</select></label>}
         <label>Data<input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /></label>
         <label>Semana<select value={weekFilter} onChange={(event) => setWeekFilter(event.target.value)}><option value="">Todas as semanas</option>{Array.from({ length: 53 }, (_, index) => index + 1).map((week) => <option value={week} key={week}>Semana {week}</option>)}</select></label>
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>
-      </section>
+      </section>}
       {mode === "dashboard" ? (
         <MaterialQualityDashboard records={records.filter((record) => record.status === "approved")} suppliers={suppliers} />
+      ) : isConcrete ? (
+        <ConcreteSleeperWorkspace
+          area={area}
+          mode={isTeam ? "records" : mode}
+          records={records}
+          suppliers={suppliers}
+          isTeam={isTeam}
+          supplierId={currentSupplierId}
+          currentUserId={currentUserId}
+          onCreated={onRecordCreated}
+        />
       ) : (
         <>
           {!isTeam && currentSupplierId && <MaterialQualityRecordForm area={area} supplierId={currentSupplierId} currentUserId={currentUserId} onCreated={onRecordCreated} />}
@@ -622,6 +670,403 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
       )}
     </>
   );
+}
+
+function concreteRecordType(record: QualityRecord): ConcreteRecordType | "legacy" {
+  const type = record.payload?.record_type;
+  return type === "concrete_production" || type === "concrete_release_test" || type === "concrete_databook" ? type : "legacy";
+}
+
+function formatConcreteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 }).format(value)
+    : "—";
+}
+
+function formatPortalDate(value: unknown) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Intl.DateTimeFormat("pt-BR").format(new Date(`${value}T12:00:00`))
+    : "—";
+}
+
+function databookForProduction(production: QualityRecord, databooks: QualityRecord[]) {
+  return databooks.find((record) =>
+    record.supplier_id === production.supplier_id && (
+      record.payload?.production_record_id === production.id
+      || (record.payload?.lot && record.payload.lot === production.payload?.lot)
+    ),
+  );
+}
+
+function DataBookDeadline({ production, databooks }: { production: QualityRecord; databooks: QualityRecord[] }) {
+  const delivered = databookForProduction(production, databooks);
+  if (delivered) return <span className="databook-deadline databook-deadline--delivered"><FileCheck2 size={14} /> Entregue</span>;
+
+  const productionDate = new Date(`${production.reference_date}T12:00:00`);
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const elapsed = Math.floor((today.getTime() - productionDate.getTime()) / 86400000);
+  const remaining = 30 - elapsed;
+  const tone = remaining < 0 ? "overdue" : remaining <= 7 ? "warning" : "regular";
+  const label = remaining < 0
+    ? `${Math.abs(remaining)} dia(s) em atraso`
+    : `${remaining} dia(s) para entrega`;
+  return <span className={`databook-deadline databook-deadline--${tone}`}><Clock3 size={14} /> {label}</span>;
+}
+
+function ReportAccess({ record, label = "Abrir relatório" }: { record: QualityRecord; label?: string }) {
+  const [opening, setOpening] = useState(false);
+  const reportUrl = typeof record.payload?.report_url === "string" ? record.payload.report_url : "";
+  const reportPath = typeof record.payload?.report_path === "string" ? record.payload.report_path : "";
+  if (!reportUrl && !reportPath) return <span>—</span>;
+
+  async function openReport() {
+    if (reportUrl) {
+      window.open(reportUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setOpening(true);
+    const { data } = await supabase.storage.from("concrete-quality-documents").createSignedUrl(reportPath, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    setOpening(false);
+  }
+
+  return <button type="button" className="report-link" disabled={opening} onClick={() => void openReport()}><ExternalLink size={14} /> {opening ? "Abrindo..." : label}</button>;
+}
+
+async function insertConcreteRecord({ area, supplierId, currentUserId, recordType, referenceDate, payload, reportFile }: {
+  area: MaterialArea;
+  supplierId: string;
+  currentUserId: string;
+  recordType: ConcreteRecordType;
+  referenceDate: string;
+  payload: Record<string, unknown>;
+  reportFile?: File | null;
+}) {
+  let reportPath = "";
+  if (reportFile?.size) {
+    if (reportFile.type !== "application/pdf") throw new Error("Selecione um arquivo PDF válido.");
+    if (reportFile.size > 20 * 1024 * 1024) throw new Error("O PDF deve ter no máximo 20 MB.");
+    const safeName = reportFile.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    reportPath = `${supplierId}/${recordType}/${crypto.randomUUID()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("concrete-quality-documents")
+      .upload(reportPath, reportFile, { contentType: "application/pdf", upsert: false });
+    if (uploadError) throw new Error("Não foi possível enviar o PDF.");
+  }
+
+  const { error } = await supabase.from("quality_records").insert({
+    supplier_id: supplierId,
+    area_id: area.id,
+    reference_date: referenceDate,
+    reference_week: getIsoWeek(referenceDate),
+    status: "submitted",
+    payload: { ...payload, record_type: recordType, ...(reportPath ? { report_path: reportPath } : {}) },
+    created_by: currentUserId,
+    submitted_at: new Date().toISOString(),
+  });
+  if (error) {
+    if (reportPath) await supabase.storage.from("concrete-quality-documents").remove([reportPath]);
+    throw new Error("Não foi possível enviar o registro. Confira os dados e tente novamente.");
+  }
+}
+
+function ConcreteSleeperWorkspace({ area, mode, records, suppliers, isTeam, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea;
+  mode: AreaMode;
+  records: QualityRecord[];
+  suppliers: Supplier[];
+  isTeam: boolean;
+  supplierId: string | null;
+  currentUserId: string;
+  onCreated: () => void;
+}) {
+  const productions = records.filter((record) => concreteRecordType(record) === "concrete_production");
+  const releaseTests = records.filter((record) => concreteRecordType(record) === "concrete_release_test");
+  const databooks = records.filter((record) => concreteRecordType(record) === "concrete_databook");
+  const supplier = suppliers.find((item) => item.id === supplierId);
+
+  if (isTeam) {
+    return (
+      <div className="concrete-team-records">
+        <ConcreteProductionHistory records={productions} databooks={databooks} suppliers={suppliers} showSupplier />
+        <ConcreteReleaseHistory records={releaseTests} suppliers={suppliers} showSupplier />
+        <ConcreteDataBookHistory records={databooks} suppliers={suppliers} showSupplier />
+      </div>
+    );
+  }
+
+  if (!supplierId) return <EmptyState />;
+  if (mode === "release_tests") return (
+    <>
+      <ConcreteReleaseTestForm area={area} supplierId={supplierId} supplierName={supplier?.trade_name ?? "Fornecedor"} currentUserId={currentUserId} onCreated={onCreated} />
+      <ConcreteReleaseHistory records={releaseTests} suppliers={suppliers} />
+    </>
+  );
+  if (mode === "databooks") return (
+    <>
+      <ConcreteDataBookForm area={area} supplierId={supplierId} currentUserId={currentUserId} productions={productions} databooks={databooks} onCreated={onCreated} />
+      <ConcreteDataBookHistory records={databooks} suppliers={suppliers} />
+    </>
+  );
+  return (
+    <>
+      <ConcreteProductionForm area={area} supplierId={supplierId} currentUserId={currentUserId} onCreated={onCreated} />
+      <ConcreteProductionHistory records={productions} databooks={databooks} suppliers={suppliers} />
+    </>
+  );
+}
+
+function ConcreteProductionForm({ area, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; supplierId: string; currentUserId: string; onCreated: () => void;
+}) {
+  const [productionDate, setProductionDate] = useState(new Date().toISOString().slice(0, 10));
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setSubmitting(true);
+    setMessage("");
+    setHasError(false);
+    try {
+      await insertConcreteRecord({
+        area, supplierId, currentUserId, recordType: "concrete_production", referenceDate: productionDate,
+        payload: {
+          lot: String(data.get("lot") ?? "").trim(),
+          project: String(data.get("project") ?? ""),
+          gauge: String(data.get("gauge") ?? "").trim(),
+          track: String(data.get("track") ?? "").trim(),
+          production: Number(data.get("production")),
+          rejections: Number(data.get("rejections")),
+        },
+      });
+      form.reset();
+      setProductionDate(new Date().toISOString().slice(0, 10));
+      setMessage("Produção registrada com sucesso.");
+      onCreated();
+    } catch (error) {
+      setHasError(true);
+      setMessage(error instanceof Error ? error.message : "Não foi possível salvar a produção.");
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <form id="material-record-form" className="material-record-form concrete-form" onSubmit={submit}>
+      <div className="material-record-form__heading"><div><p className="eyebrow">REGISTRO DE PRODUÇÃO</p><h2>Produção de dormentes</h2><p>Informe a produção por projeto, lote e pista.</p></div><div className="account-icon"><Factory /></div></div>
+      <div className="form-grid concrete-form-grid">
+        <label>Data<input required type="date" value={productionDate} onChange={(event) => setProductionDate(event.target.value)} /></label>
+        <label>Semana<input readOnly value={`Semana ${getIsoWeek(productionDate)}`} /></label>
+        <label>Lote<input required name="lot" placeholder="Ex.: L-2026-081" /></label>
+        <label>Projeto<select required name="project" defaultValue=""><option value="" disabled>Selecione o projeto</option>{concreteProjects.map((project) => <option key={project}>{project}</option>)}</select></label>
+        <label>Bitola<input required name="gauge" placeholder="Ex.: 1.600 mm" /></label>
+        <label>Pista<input required name="track" placeholder="Ex.: Pista 02" /></label>
+        <label>Produção<input required name="production" type="number" min="0" step="1" placeholder="0" /></label>
+        <label>Reprovas<input required name="rejections" type="number" min="0" step="1" placeholder="0" /></label>
+      </div>
+      {message && <div className={hasError ? "form-error" : "form-feedback"}>{message}</div>}
+      <div className="material-record-form__actions"><span>O prazo do Data Book começa na data de produção e vence em 30 dias.</span><button className="primary-button primary-button--compact" disabled={submitting} type="submit"><FileCheck2 size={18} />{submitting ? "Enviando..." : "Registrar produção"}</button></div>
+    </form>
+  );
+}
+
+const releaseMeasurementFields = [
+  ["positive_support_load", "Carga de Momento Positivo no Apoio"],
+  ["positive_center_load", "Carga de Momento Positivo no Centro"],
+  ["bond_anchor_load", "Carga de Aderência/Ancoragem"],
+  ["negative_support_load", "Carga de Momento Negativo no Apoio"],
+  ["negative_center_load", "Carga de Momento Negativo no Centro"],
+  ["shoulder_pullout_a", "Ensaio de Arrancamento de Ombreira A"],
+  ["shoulder_pullout_b", "Ensaio de Arrancamento de Ombreira B"],
+  ["support_base_inclination", "Inclinação na base do apoio"],
+  ["twist_between_supports", "Torção entre apoios"],
+  ["shoulder_twist_a", "Torção de Ombreiras A"],
+  ["shoulder_twist_b", "Torção de Ombreiras B"],
+  ["sleeper_length", "Comprimento do Dormente"],
+  ["sleeper_width", "Largura do dormente"],
+  ["height_between_supports", "Altura do dormente entre apoios"],
+  ["middle_height", "Altura no meio do dormente"],
+  ["internal_shoulder_distance", "Distância interna entre ombreiras"],
+  ["shoulder_height_check", "Verificação da altura da ombreira"],
+] as const;
+
+function ConcreteReleaseTestForm({ area, supplierId, supplierName, currentUserId, onCreated }: {
+  area: MaterialArea; supplierId: string; supplierName: string; currentUserId: string; onCreated: () => void;
+}) {
+  const [sleeperType, setSleeperType] = useState("");
+  const [testDate, setTestDate] = useState(new Date().toISOString().slice(0, 10));
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+  const mixedGauge = sleeperType.startsWith("Bitola Mista");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const reportFile = data.get("report_file") as File | null;
+    const reportUrl = String(data.get("report_url") ?? "").trim();
+    if (!reportUrl && !reportFile?.size) {
+      setHasError(true);
+      setMessage("Informe o link do relatório ou selecione um PDF.");
+      return;
+    }
+    const measurements = Object.fromEntries(releaseMeasurementFields.map(([name]) => [name, Number(data.get(name))]));
+    setSubmitting(true);
+    setMessage("");
+    setHasError(false);
+    try {
+      await insertConcreteRecord({
+        area, supplierId, currentUserId, recordType: "concrete_release_test", referenceDate: testDate, reportFile,
+        payload: {
+          project: String(data.get("project") ?? ""),
+          responsible_inspector: String(data.get("responsible_inspector") ?? "").trim(),
+          supplier_name: supplierName,
+          sleeper_type: sleeperType,
+          test_date: testDate,
+          lot: String(data.get("lot") ?? "").trim(),
+          mold: String(data.get("mold") ?? "").trim(),
+          cavity: String(data.get("cavity") ?? "").trim(),
+          track: String(data.get("track") ?? "").trim(),
+          sleeper_production_date: String(data.get("sleeper_production_date") ?? ""),
+          lot_series: String(data.get("lot_series") ?? "").trim(),
+          ...measurements,
+          ...(mixedGauge ? {
+            shoulder_pullout_c: Number(data.get("shoulder_pullout_c")),
+            shoulder_twist_c: Number(data.get("shoulder_twist_c")),
+          } : {}),
+          lot_result: String(data.get("lot_result") ?? ""),
+          ...(reportUrl ? { report_url: reportUrl } : {}),
+        },
+      });
+      form.reset();
+      setSleeperType("");
+      setTestDate(new Date().toISOString().slice(0, 10));
+      setMessage("Ensaio de liberação enviado com sucesso.");
+      onCreated();
+    } catch (error) {
+      setHasError(true);
+      setMessage(error instanceof Error ? error.message : "Não foi possível salvar o ensaio.");
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <form id="material-record-form" className="material-record-form concrete-form" onSubmit={submit}>
+      <div className="material-record-form__heading"><div><p className="eyebrow">ENSAIO DE LIBERAÇÃO</p><h2>Qualidade do fornecedor</h2><p>Registre os resultados do ensaio e anexe a evidência correspondente.</p></div><div className="account-icon"><FlaskConical /></div></div>
+      <fieldset className="concrete-fieldset"><legend>Identificação do ensaio</legend><div className="form-grid concrete-form-grid">
+        <label>Projeto<select required name="project" defaultValue=""><option value="" disabled>Selecione o projeto</option>{concreteProjects.map((project) => <option key={project}>{project}</option>)}</select></label>
+        <label>Fiscal Responsável<input required name="responsible_inspector" /></label>
+        <label>Fornecedor<input readOnly value={supplierName} /></label>
+        <label>Tipo de dormente<select required value={sleeperType} onChange={(event) => setSleeperType(event.target.value)}><option value="" disabled>Selecione o tipo</option>{concreteSleeperTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+        <label>Data do Ensaio<input required type="date" value={testDate} onChange={(event) => setTestDate(event.target.value)} /></label>
+        <label>Lote<input required name="lot" /></label><label>Molde<input required name="mold" /></label><label>Cavidade<input required name="cavity" /></label><label>Pista<input required name="track" /></label>
+        <label>Data de produção do dormente ensaiado<input required type="date" name="sleeper_production_date" /></label>
+        <label>Série de Lotes<input required name="lot_series" /></label>
+      </div></fieldset>
+      <fieldset className="concrete-fieldset"><legend>Cargas e ensaios mecânicos</legend><div className="form-grid concrete-form-grid">
+        {releaseMeasurementFields.slice(0, 7).map(([name, label]) => <label key={name}>{label}<input required name={name} type="number" step="any" /></label>)}
+        {mixedGauge && <label>Ensaio de Arrancamento de Ombreira C<input required name="shoulder_pullout_c" type="number" step="any" /></label>}
+      </div></fieldset>
+      <fieldset className="concrete-fieldset"><legend>Geometria, torção e dimensões</legend><div className="form-grid concrete-form-grid">
+        {releaseMeasurementFields.slice(7).map(([name, label]) => <label key={name}>{label}<input required name={name} type="number" step="any" /></label>)}
+        {mixedGauge && <label>Torção de Ombreiras C<input required name="shoulder_twist_c" type="number" step="any" /></label>}
+      </div></fieldset>
+      <fieldset className="concrete-fieldset"><legend>Conclusão e relatório</legend><div className="form-grid concrete-form-grid">
+        <label>Lote Aprovado ou Reprovado<select required name="lot_result" defaultValue=""><option value="" disabled>Selecione o resultado</option><option value="approved">Aprovado</option><option value="rejected">Reprovado</option></select></label>
+        <label>Link do Relatório<input name="report_url" type="url" placeholder="https://..." /></label>
+        <label className="file-input-label">Relatório em PDF<input name="report_file" type="file" accept="application/pdf,.pdf" /><span><Upload size={16} /> PDF de até 20 MB</span></label>
+      </div></fieldset>
+      {message && <div className={hasError ? "form-error" : "form-feedback"}>{message}</div>}
+      <div className="material-record-form__actions"><span>Os campos da Ombreira C aparecem somente para Bitola Mista.</span><button className="primary-button primary-button--compact" disabled={submitting} type="submit"><FileCheck2 size={18} />{submitting ? "Enviando..." : "Enviar ensaio"}</button></div>
+    </form>
+  );
+}
+
+function ConcreteDataBookForm({ area, supplierId, currentUserId, productions, databooks, onCreated }: {
+  area: MaterialArea; supplierId: string; currentUserId: string; productions: QualityRecord[]; databooks: QualityRecord[]; onCreated: () => void;
+}) {
+  const eligible = productions.filter((record) => !databookForProduction(record, databooks));
+  const [productionId, setProductionId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+  const selected = eligible.find((record) => record.id === productionId);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const reportFile = data.get("report_file") as File | null;
+    const reportUrl = String(data.get("report_url") ?? "").trim();
+    if (!selected) return;
+    if (!reportUrl && !reportFile?.size) {
+      setHasError(true);
+      setMessage("Informe o link do Data Book ou selecione um PDF.");
+      return;
+    }
+    setSubmitting(true);
+    setMessage("");
+    setHasError(false);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await insertConcreteRecord({
+        area, supplierId, currentUserId, recordType: "concrete_databook", referenceDate: today, reportFile,
+        payload: {
+          production_record_id: selected.id,
+          lot: selected.payload?.lot,
+          project: selected.payload?.project,
+          production_date: selected.reference_date,
+          delivered_at: new Date().toISOString(),
+          ...(reportUrl ? { report_url: reportUrl } : {}),
+        },
+      });
+      form.reset();
+      setProductionId("");
+      setMessage("Data Book entregue com sucesso.");
+      onCreated();
+    } catch (error) {
+      setHasError(true);
+      setMessage(error instanceof Error ? error.message : "Não foi possível entregar o Data Book.");
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <form id="material-record-form" className="material-record-form concrete-form" onSubmit={submit}>
+      <div className="material-record-form__heading"><div><p className="eyebrow">ENTREGA DE DATA BOOK</p><h2>Documentação do lote</h2><p>Associe o documento a uma produção ainda pendente.</p></div><div className="account-icon"><FileText /></div></div>
+      {eligible.length ? <div className="form-grid concrete-form-grid">
+        <label className="full-width">Lote / produção<select required value={productionId} onChange={(event) => setProductionId(event.target.value)}><option value="" disabled>Selecione a produção</option>{eligible.map((record) => <option key={record.id} value={record.id}>{String(record.payload?.lot)} · {String(record.payload?.project)} · {formatPortalDate(record.reference_date)}</option>)}</select></label>
+        <label>Link do Data Book<input name="report_url" type="url" placeholder="https://..." /></label>
+        <label className="file-input-label">Data Book em PDF<input name="report_file" type="file" accept="application/pdf,.pdf" /><span><Upload size={16} /> PDF de até 20 MB</span></label>
+        {selected && <div className="databook-selected full-width"><strong>Lote {String(selected.payload?.lot)}</strong><span>{String(selected.payload?.project)} · Produção em {formatPortalDate(selected.reference_date)}</span><DataBookDeadline production={selected} databooks={databooks} /></div>}
+      </div> : <div className="form-feedback">Todos os lotes produzidos já possuem Data Book entregue.</div>}
+      {message && <div className={hasError ? "form-error" : "form-feedback"}>{message}</div>}
+      <div className="material-record-form__actions"><span>Prazo contratual: até 30 dias após a produção do lote.</span><button className="primary-button primary-button--compact" disabled={submitting || !eligible.length} type="submit"><FileCheck2 size={18} />{submitting ? "Enviando..." : "Entregar Data Book"}</button></div>
+    </form>
+  );
+}
+
+function ConcreteProductionHistory({ records, databooks, suppliers, showSupplier = false }: { records: QualityRecord[]; databooks: QualityRecord[]; suppliers: Supplier[]; showSupplier?: boolean }) {
+  return <section className="records-card concrete-record-section"><div className="records-head"><div><p className="eyebrow">PRODUÇÃO</p><h2>Produção registrada</h2><p>{records.length} registro(s) de produção</p></div></div>{records.length ? <div className="table-wrap"><table className="concrete-record-table"><thead><tr>{showSupplier && <th>Fornecedor</th>}<th>Data</th><th>Semana</th><th>Lote</th><th>Projeto</th><th>Bitola</th><th>Pista</th><th>Produção</th><th>Reprovas</th><th>Prazo do Data Book</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{showSupplier && <td><strong>{suppliers.find((item) => item.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td>}<td>{formatPortalDate(record.reference_date)}</td><td>Semana {record.reference_week}</td><td><strong>{String(record.payload?.lot ?? "—")}</strong></td><td>{String(record.payload?.project ?? "—")}</td><td>{String(record.payload?.gauge ?? "—")}</td><td>{String(record.payload?.track ?? "—")}</td><td>{formatConcreteNumber(record.payload?.production)}</td><td>{formatConcreteNumber(record.payload?.rejections)}</td><td><DataBookDeadline production={record} databooks={databooks} /></td></tr>)}</tbody></table></div> : <EmptyState compact />}</section>;
+}
+
+function ConcreteReleaseHistory({ records, suppliers, showSupplier = false }: { records: QualityRecord[]; suppliers: Supplier[]; showSupplier?: boolean }) {
+  return <section className="records-card concrete-record-section"><div className="records-head"><div><p className="eyebrow">ENSAIOS DE LIBERAÇÃO</p><h2>Resultados informados</h2><p>{records.length} ensaio(s) registrado(s)</p></div></div>{records.length ? <div className="concrete-detail-list">{records.map((record) => <details className="concrete-detail-card" key={record.id}><summary><span><strong>Lote {String(record.payload?.lot ?? "—")}</strong><small>{showSupplier ? `${suppliers.find((item) => item.id === record.supplier_id)?.trade_name ?? "Fornecedor"} · ` : ""}{String(record.payload?.project ?? "—")} · {formatPortalDate(record.payload?.test_date)}</small></span><span className={`record-status record-status--${record.payload?.lot_result === "approved" ? "approved" : "rejected"}`}>{record.payload?.lot_result === "approved" ? "Lote aprovado" : "Lote reprovado"}</span></summary><div className="concrete-detail-grid">
+          <div><span>Fiscal Responsável</span><strong>{String(record.payload?.responsible_inspector ?? "—")}</strong></div><div><span>Fornecedor</span><strong>{String(record.payload?.supplier_name ?? "—")}</strong></div><div><span>Tipo de dormente</span><strong>{String(record.payload?.sleeper_type ?? "—")}</strong></div><div><span>Molde / Cavidade / Pista</span><strong>{String(record.payload?.mold ?? "—")} / {String(record.payload?.cavity ?? "—")} / {String(record.payload?.track ?? "—")}</strong></div><div><span>Produção do dormente</span><strong>{formatPortalDate(record.payload?.sleeper_production_date)}</strong></div><div><span>Série de Lotes</span><strong>{String(record.payload?.lot_series ?? "—")}</strong></div>
+          {releaseMeasurementFields.map(([name, label]) => <div key={name}><span>{label}</span><strong>{formatConcreteNumber(record.payload?.[name])}</strong></div>)}
+          {record.payload?.shoulder_pullout_c !== undefined && <div><span>Ensaio de Arrancamento de Ombreira C</span><strong>{formatConcreteNumber(record.payload.shoulder_pullout_c)}</strong></div>}
+          {record.payload?.shoulder_twist_c !== undefined && <div><span>Torção de Ombreiras C</span><strong>{formatConcreteNumber(record.payload.shoulder_twist_c)}</strong></div>}
+          <div><span>Relatório</span><strong><ReportAccess record={record} /></strong></div>
+        </div></details>)}</div> : <EmptyState compact />}</section>;
+}
+
+function ConcreteDataBookHistory({ records, suppliers, showSupplier = false }: { records: QualityRecord[]; suppliers: Supplier[]; showSupplier?: boolean }) {
+  return <section className="records-card concrete-record-section"><div className="records-head"><div><p className="eyebrow">DATA BOOK</p><h2>Documentos entregues</h2><p>{records.length} Data Book(s) recebido(s)</p></div></div>{records.length ? <div className="table-wrap"><table className="concrete-record-table"><thead><tr>{showSupplier && <th>Fornecedor</th>}<th>Lote</th><th>Projeto</th><th>Data de produção</th><th>Data de entrega</th><th>Documento</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}>{showSupplier && <td><strong>{suppliers.find((item) => item.id === record.supplier_id)?.trade_name ?? "Fornecedor"}</strong></td>}<td><strong>{String(record.payload?.lot ?? "—")}</strong></td><td>{String(record.payload?.project ?? "—")}</td><td>{formatPortalDate(record.payload?.production_date)}</td><td>{typeof record.payload?.delivered_at === "string" ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(record.payload.delivered_at)) : "—"}</td><td><ReportAccess record={record} label="Abrir Data Book" /></td></tr>)}</tbody></table></div> : <EmptyState compact />}</section>;
 }
 
 function payloadNumber(record: QualityRecord, key: keyof Omit<MaterialQualityPayload, "order_number">) {

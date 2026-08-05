@@ -59,6 +59,7 @@ Deno.serve(async (request) => {
     .from("material_areas")
     .select("id, code, name")
     .eq("is_active", true)
+    .neq("code", "concrete_sleeper")
     .order("sort_order");
   if (areasError) return json({ error: areasError.message }, 400);
   if (!areas?.length) return json({ error: "Nenhuma área de materiais foi encontrada." }, 400);

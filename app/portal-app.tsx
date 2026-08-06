@@ -97,6 +97,9 @@ type MaterialQualityPayload = {
   released_stock_volume: number;
 };
 
+type BallastTestType = "granulometry" | "fragment_shape";
+type BallastTestStatus = "approved" | "rejected";
+
 type ConcreteRecordType = "concrete_production" | "concrete_release_test" | "concrete_databook";
 
 const concreteProjects = [
@@ -123,7 +126,7 @@ type QualityChartConfig = {
   id: string;
   title: string;
   subtitle: string;
-  unit: "pieces" | "percent";
+  unit: "pieces" | "tests" | "percent";
   kind: "ranked-bar" | "trend" | "progress" | "donut";
   color: string;
   secondaryColor?: string;
@@ -624,11 +627,12 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
   };
   const isConcrete = area.code === "concrete_sleeper";
   const isSubcomponents = area.code === "subcomponents";
+  const isBallast = area.code === "ballast";
   return (
     <>
       <section className="area-hero" style={{ "--area-accent": area.accent_color } as React.CSSProperties}>
         <div><p className="eyebrow">ÁREA DE MATERIAL</p><h1>{area.name}</h1><p>{area.description}</p></div>
-        {!isTeam && !isConcrete && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> {isSubcomponents ? "Novo certificado" : "Novo registro"}</button>}
+        {!isTeam && !isConcrete && <button className="primary-button primary-button--compact" onClick={openNewRecord}><Plus size={18} /> {isSubcomponents ? "Novo certificado" : isBallast ? "Novo ensaio" : "Novo registro"}</button>}
       </section>
       <div className="view-tabs">
         <button className={mode === "dashboard" ? "active" : ""} onClick={() => setMode("dashboard")}><BarChart3 size={17} /> Dashboard</button>
@@ -638,7 +642,7 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
             <button className={mode === "release_tests" ? "active" : ""} onClick={() => setMode("release_tests")}><FlaskConical size={17} /> Ensaios</button>
             <button className={mode === "databooks" ? "active" : ""} onClick={() => setMode("databooks")}><FileText size={17} /> Data Book</button>
           </>
-        ) : <button className={mode === "records" ? "active" : ""} onClick={() => setMode("records")}><ClipboardCheck size={17} /> Registros</button>}
+        ) : <button className={mode === "records" ? "active" : ""} onClick={() => setMode("records")}><ClipboardCheck size={17} /> {isBallast ? "Ensaios" : "Registros"}</button>}
       </div>
       {(mode === "dashboard" || mode === "records") && <section className="filter-bar">
         <div className="filter-title"><SlidersHorizontal size={18} /><span>Filtros</span></div>
@@ -648,7 +652,9 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         <button className="text-button" onClick={() => { setSupplierFilter(""); setDateFilter(""); setWeekFilter(""); }}>Limpar filtros</button>
       </section>}
       {mode === "dashboard" ? (
-        <MaterialQualityDashboard records={records.filter((record) => record.status === "approved")} suppliers={suppliers} />
+        isBallast
+          ? <BallastDashboard records={records} suppliers={suppliers} />
+          : <MaterialQualityDashboard records={records.filter((record) => record.status === "approved")} suppliers={suppliers} />
       ) : isConcrete ? (
         <ConcreteSleeperWorkspace
           area={area}
@@ -662,6 +668,16 @@ function AreaWorkspace({ area, mode, setMode, suppliers, records, supplierFilter
         />
       ) : isSubcomponents ? (
         <SubcomponentCertificatesWorkspace
+          area={area}
+          records={records}
+          suppliers={suppliers}
+          isTeam={isTeam}
+          supplierId={currentSupplierId}
+          currentUserId={currentUserId}
+          onCreated={onRecordCreated}
+        />
+      ) : isBallast ? (
+        <BallastWorkspace
           area={area}
           records={records}
           suppliers={suppliers}
@@ -1209,6 +1225,173 @@ function SubcomponentCertificatesWorkspace({ area, records, suppliers, isTeam, s
 }) {
   const certificates = records.filter((record) => record.payload?.record_type === "subcomponent_certificate");
   return <>{!isTeam && supplierId && <SubcomponentCertificateForm area={area} supplierId={supplierId} currentUserId={currentUserId} onCreated={onCreated} />}<SubcomponentCertificateHistory records={certificates} suppliers={suppliers} showSupplier={isTeam} /></>;
+}
+
+function ballastTestTypeLabel(value: unknown) {
+  if (value === "granulometry") return "Granulometria";
+  if (value === "fragment_shape") return "F. Fragmentos";
+  return "—";
+}
+
+function ballastTestStatusLabel(value: unknown) {
+  if (value === "approved") return "Aprovado";
+  if (value === "rejected") return "Reprovado";
+  return "—";
+}
+
+function BallastTestForm({ area, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; supplierId: string; currentUserId: string; onCreated: () => void;
+}) {
+  const [referenceDate, setReferenceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [referenceWeek, setReferenceWeek] = useState(String(getIsoWeek(referenceDate)));
+  const [testType, setTestType] = useState<BallastTestType>("granulometry");
+  const [testStatus, setTestStatus] = useState<BallastTestStatus>("approved");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+
+  function changeDate(value: string) {
+    setReferenceDate(value);
+    if (value) setReferenceWeek(String(getIsoWeek(value)));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const week = Number(referenceWeek);
+    if (!Number.isInteger(week) || week < 1 || week > 53) {
+      setHasError(true);
+      setMessage("Informe uma semana válida, entre 1 e 53.");
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage("");
+    setHasError(false);
+    const { error } = await supabase.from("quality_records").insert({
+      supplier_id: supplierId,
+      area_id: area.id,
+      reference_date: referenceDate,
+      reference_week: week,
+      status: "submitted",
+      payload: { record_type: "ballast_test", test_type: testType, test_status: testStatus },
+      created_by: currentUserId,
+      submitted_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      setHasError(true);
+      setMessage("Não foi possível enviar o ensaio. Confira os dados e tente novamente.");
+    } else {
+      setMessage("Ensaio enviado com sucesso para a equipe Rumo.");
+      onCreated();
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <form id="material-record-form" className="material-record-form" onSubmit={submit}>
+      <div className="material-record-form__heading">
+        <div><p className="eyebrow">NOVO ENSAIO</p><h2>Controle de Lastro</h2><p>Informe o ensaio realizado pela pedreira e envie o resultado para a equipe Rumo.</p></div>
+        <div className="account-icon"><FlaskConical /></div>
+      </div>
+      <div className="form-grid material-record-grid ballast-record-grid">
+        <label>Data<input required type="date" value={referenceDate} onChange={(event) => changeDate(event.target.value)} /></label>
+        <label>Semana<input required type="number" min="1" max="53" step="1" value={referenceWeek} onChange={(event) => setReferenceWeek(event.target.value)} /></label>
+        <label>Tipo de ensaio realizado<select required value={testType} onChange={(event) => setTestType(event.target.value as BallastTestType)}><option value="granulometry">Granulometria</option><option value="fragment_shape">F. Fragmentos</option></select></label>
+        <label>Status<select required value={testStatus} onChange={(event) => setTestStatus(event.target.value as BallastTestStatus)}><option value="approved">Aprovado</option><option value="rejected">Reprovado</option></select></label>
+      </div>
+      {message && <div className={hasError ? "form-error" : "form-feedback"}>{message}</div>}
+      <div className="material-record-form__actions"><span>A semana é sugerida pela data e pode ser ajustada.</span><button className="primary-button primary-button--compact" disabled={submitting} type="submit"><FileCheck2 size={18} />{submitting ? "Enviando..." : "Enviar ensaio para a Rumo"}</button></div>
+    </form>
+  );
+}
+
+function BallastRecordsTable({ records, suppliers, compact = false, showSupplier = false }: {
+  records: QualityRecord[]; suppliers: Supplier[]; compact?: boolean; showSupplier?: boolean;
+}) {
+  if (!records.length) return <EmptyState compact={compact} />;
+  return (
+    <div className="table-wrap">
+      <table className="material-quality-table ballast-quality-table">
+        <thead><tr>{showSupplier && <th>Pedreira</th>}<th>Data</th><th>Semana</th><th>Tipo de ensaio</th><th>Status</th></tr></thead>
+        <tbody>{records.slice(0, compact ? 5 : 100).map((record) => {
+          const result = String(record.payload?.test_status ?? "");
+          return <tr key={record.id}>{showSupplier && <td><strong>{suppliers.find((supplier) => supplier.id === record.supplier_id)?.trade_name ?? "Pedreira"}</strong></td>}<td>{formatPortalDate(record.reference_date)}</td><td>Semana {record.reference_week}</td><td>{ballastTestTypeLabel(record.payload?.test_type)}</td><td><span className={`record-status record-status--${result}`}>{ballastTestStatusLabel(result)}</span></td></tr>;
+        })}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function BallastWorkspace({ area, records, suppliers, isTeam, supplierId, currentUserId, onCreated }: {
+  area: MaterialArea; records: QualityRecord[]; suppliers: Supplier[]; isTeam: boolean; supplierId: string | null; currentUserId: string; onCreated: () => void;
+}) {
+  const ballastRecords = records.filter((record) => record.payload?.record_type === "ballast_test");
+  return <>{!isTeam && supplierId && <BallastTestForm area={area} supplierId={supplierId} currentUserId={currentUserId} onCreated={onCreated} />}<section className="records-card"><div className="records-head"><div><p className="eyebrow">ENSAIOS RECEBIDOS</p><h2>Histórico de ensaios de Lastro</h2><p>{ballastRecords.length} ensaio(s) no período selecionado</p></div></div><BallastRecordsTable records={ballastRecords} suppliers={suppliers} showSupplier={isTeam} /></section></>;
+}
+
+function BallastDashboard({ records, suppliers }: { records: QualityRecord[]; suppliers: Supplier[] }) {
+  const [activeChart, setActiveChart] = useState<QualityChartConfig | null>(null);
+  const ballastRecords = useMemo(() => records.filter((record) => record.payload?.record_type === "ballast_test"), [records]);
+  const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.trade_name])), [suppliers]);
+
+  const charts = useMemo(() => {
+    const typeCounts = new Map<BallastTestType, number>([["granulometry", 0], ["fragment_shape", 0]]);
+    const supplierCounts = new Map<string, number>();
+    const supplierResults = new Map<string, { total: number; approved: number }>();
+    const approvedByType = new Map<BallastTestType, number>([["granulometry", 0], ["fragment_shape", 0]]);
+
+    for (const record of ballastRecords) {
+      const type = record.payload?.test_type as BallastTestType;
+      const approved = record.payload?.test_status === "approved";
+      if (typeCounts.has(type)) {
+        typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+        if (approved) approvedByType.set(type, (approvedByType.get(type) ?? 0) + 1);
+      }
+      supplierCounts.set(record.supplier_id, (supplierCounts.get(record.supplier_id) ?? 0) + 1);
+      const result = supplierResults.get(record.supplier_id) ?? { total: 0, approved: 0 };
+      result.total += 1;
+      if (approved) result.approved += 1;
+      supplierResults.set(record.supplier_id, result);
+    }
+
+    const bySupplier = [...supplierCounts.entries()].map(([id, value]) => ({ label: supplierNames.get(id) ?? "Pedreira", value })).sort((a, b) => b.value - a.value);
+    const approvalBySupplier = [...supplierResults.entries()].map(([id, value]) => ({ label: supplierNames.get(id) ?? "Pedreira", value: value.total ? (value.approved / value.total) * 100 : 0 })).sort((a, b) => b.value - a.value);
+    const typeData = [...typeCounts.entries()].map(([type, value]) => ({ label: ballastTestTypeLabel(type), value }));
+    const approvedData = [...approvedByType.entries()].map(([type, value]) => ({ label: ballastTestTypeLabel(type), value }));
+
+    return [
+      { id: "ballast-tests-by-type", title: "Quantidade de ensaios por tipo", subtitle: "Ensaios realizados na semana filtrada", unit: "tests", kind: "ranked-bar", color: "#F78344", data: typeData },
+      { id: "ballast-tests-by-quarry", title: "Ensaios por pedreira", subtitle: "Distribuição na semana filtrada", unit: "tests", kind: "ranked-bar", color: "#32A6E6", data: bySupplier },
+      { id: "ballast-approved-tests", title: "Quantidade de ensaios aprovados", subtitle: "Aprovados por tipo na semana filtrada", unit: "tests", kind: "ranked-bar", color: "#1E9F7F", data: approvedData },
+      { id: "ballast-approval-rate", title: "Taxa de aprovação", subtitle: "Percentual por pedreira na semana filtrada", unit: "percent", kind: "progress", color: "#003865", data: approvalBySupplier },
+    ] satisfies QualityChartConfig[];
+  }, [ballastRecords, supplierNames]);
+
+  useEffect(() => {
+    if (!activeChart) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setActiveChart(null); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [activeChart]);
+
+  const approved = ballastRecords.filter((record) => record.payload?.test_status === "approved").length;
+  const rate = ballastRecords.length ? (approved / ballastRecords.length) * 100 : 0;
+  return (
+    <>
+      <section className="material-kpi-grid">
+        <Metric label="Ensaios realizados" value={String(ballastRecords.length)} detail="Na semana ou período filtrado" color="cyan" icon={<FlaskConical />} />
+        <Metric label="Ensaios aprovados" value={String(approved)} detail="Na semana ou período filtrado" color="green" icon={<ShieldCheck />} />
+        <Metric label="Taxa de aprovação" value={`${rate.toFixed(1)}%`} detail="Resultado dos ensaios filtrados" color="blue" icon={<Gauge />} />
+        <Metric label="Pedreiras com ensaios" value={String(new Set(ballastRecords.map((record) => record.supplier_id)).size)} detail="Fornecedores no período" color="orange" icon={<Factory />} />
+      </section>
+      <section className="quality-charts-grid">
+        {charts.map((chart) => <QualityChartCard chart={chart} key={chart.id} onOpen={() => setActiveChart(chart)} />)}
+        <article className="chart-card quality-records-summary"><div className="card-heading"><div><span>Ensaios que compõem os indicadores</span><p>Dados da semana ou período filtrado</p></div></div><BallastRecordsTable records={ballastRecords} suppliers={suppliers} compact showSupplier /></article>
+      </section>
+      {activeChart && <QualityChartModal chart={activeChart} onClose={() => setActiveChart(null)} />}
+    </>
+  );
 }
 
 function payloadNumber(record: QualityRecord, key: keyof Omit<MaterialQualityPayload, "order_number">) {
